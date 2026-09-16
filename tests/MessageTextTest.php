@@ -66,10 +66,101 @@ final class MessageTextTest extends TestCase
         self::assertNull(MessageText::forTwitch('   ', 'alice'));
     }
 
-    public function testAttachmentOnlyMessageIsAnnounced(): void
+    // ── attachments ──────────────────────────────────────────────────────
+
+    /** A long, signed URL of the shape Discord actually issues. */
+    private function cdnUrl(string $name = 'cat.png'): string
     {
-        self::assertSame('alice: [1 attachment]', MessageText::forTwitch('', 'alice', attachments: 1));
-        self::assertSame('alice: look [2 attachments]', MessageText::forTwitch('look', 'alice', attachments: 2));
+        return 'https://cdn.discordapp.com/attachments/1234567890123456789/9876543210987654321/'
+            . $name . '?ex=671a2b3c&is=6718d9bc&hm=' . str_repeat('a', 64) . '&';
+    }
+
+    public function testAttachmentsRelayAsLinks(): void
+    {
+        $url = $this->cdnUrl();
+
+        self::assertSame('alice: ' . $url, MessageText::forTwitch('', 'alice', attachments: [$url]));
+        self::assertSame('alice: look ' . $url, MessageText::forTwitch('look', 'alice', attachments: [$url]));
+    }
+
+    /** An attachment with no caption is the whole message; relay it. */
+    public function testAttachmentWithoutTextIsStillRelayed(): void
+    {
+        self::assertNotNull(MessageText::forTwitch('', 'alice', attachments: [$this->cdnUrl()]));
+    }
+
+    public function testSeveralAttachmentsAreListedWhileTheyFit(): void
+    {
+        $text = (string) MessageText::forTwitch('', 'alice', attachments: [
+            'https://cdn.discordapp.com/a/1.png',
+            'https://cdn.discordapp.com/a/2.png',
+        ]);
+
+        self::assertStringContainsString('1.png', $text);
+        self::assertStringContainsString('2.png', $text);
+        self::assertStringNotContainsString('more', $text);
+    }
+
+    /**
+     * A truncated URL looks clickable and goes nowhere, so links are never cut
+     * mid-way — the ones that do not fit are counted instead.
+     */
+    public function testAttachmentsThatDoNotFitAreCountedNotTruncated(): void
+    {
+        $text = (string) MessageText::forTwitch('', 'alice', attachments: [
+            $this->cdnUrl('one.png'),
+            $this->cdnUrl('two.png'),
+            $this->cdnUrl('three.png'),
+        ]);
+
+        self::assertLessThanOrEqual(MessageText::TWITCH_LIMIT, mb_strlen($text));
+        self::assertStringContainsString('one.png', $text);
+        self::assertStringContainsString('more)', $text);
+        // Whatever is shown must be whole: no half-written signature.
+        self::assertStringNotContainsString('…', $text);
+    }
+
+    /**
+     * The link is budgeted before the text. The old behaviour appended the
+     * marker to the body and then truncated the lot, so a long message cut its
+     * own attachment note off the end.
+     */
+    public function testALongMessageDoesNotCrowdOutTheLink(): void
+    {
+        $url = $this->cdnUrl();
+        $text = (string) MessageText::forTwitch(str_repeat('x', 900), 'alice', attachments: [$url]);
+
+        self::assertLessThanOrEqual(MessageText::TWITCH_LIMIT, mb_strlen($text));
+        self::assertStringEndsWith($url, $text);
+        self::assertStringContainsString('…', $text, 'the text should be what gets shortened');
+    }
+
+    /** Nothing that could break out of the IRC line, and no plaintext links. */
+    public function testOnlyWellFormedHttpsLinksAreRelayed(): void
+    {
+        $text = MessageText::forTwitch('', 'alice', attachments: [
+            'http://cdn.discordapp.com/a/insecure.png',
+            "https://cdn.discordapp.com/a/b.png\r\nPRIVMSG #x :pwned",
+            'javascript:alert(1)',
+            '',
+        ]);
+
+        // The CRLF one survives sanitisation as a single line, so it is kept —
+        // but it must not contain the injection.
+        if ($text !== null) {
+            self::assertStringNotContainsString("\r", $text);
+            self::assertStringNotContainsString("\n", $text);
+        }
+
+        self::assertNull(MessageText::forTwitch('', 'alice', attachments: [
+            'http://cdn.discordapp.com/a/insecure.png',
+            'javascript:alert(1)',
+        ]), 'non-https attachments are not relayed as links');
+    }
+
+    public function testNoAttachmentsChangesNothing(): void
+    {
+        self::assertSame('alice: hello', MessageText::forTwitch('hello', 'alice', attachments: []));
     }
 
     public function testOutputFitsTwitchsLimit(): void

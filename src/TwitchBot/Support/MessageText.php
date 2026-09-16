@@ -61,9 +61,16 @@ final class MessageText
      * relayed `/ban someone` would otherwise execute if the bot holds
      * moderator on the target channel.
      *
-     * @param array<string, string> $userNames  Discord user id => display name, for resolving `<@id>`.
+     * Attachments are relayed as their CDN links, so someone in Twitch chat can
+     * actually open the picture rather than being told one exists. They are
+     * budgeted *before* the message text and appended after truncation, not
+     * before it: a link that has had its tail cut off is not a link, whereas a
+     * shortened sentence still reads.
+     *
+     * @param array<string, string> $userNames    Discord user id => display name, for resolving `<@id>`.
      * @param array<string, string> $channelNames Discord channel id => name, for `<#id>`.
-     * @param array<string, string> $roleNames  Discord role id => name, for `<@&id>`.
+     * @param array<string, string> $roleNames    Discord role id => name, for `<@&id>`.
+     * @param list<string>          $attachments  Attachment URLs, in the order posted.
      */
     public static function forTwitch(
         string $content,
@@ -71,23 +78,94 @@ final class MessageText
         array $userNames = [],
         array $channelNames = [],
         array $roleNames = [],
-        int $attachments = 0,
+        array $attachments = [],
         int $limit = self::TWITCH_LIMIT,
     ): ?string {
-        $body = self::resolveMentions($content, $userNames, $channelNames, $roleNames);
-        $body = self::sanitizeIrc($body);
+        $body = self::sanitizeIrc(self::resolveMentions($content, $userNames, $channelNames, $roleNames));
+        $prefix = self::sanitizeIrc($author) . ': ';
 
-        if ($attachments > 0) {
-            $body .= ($body === '' ? '' : ' ') . sprintf('[%d attachment%s]', $attachments, $attachments === 1 ? '' : 's');
-        }
+        $budget = max(1, $limit - self::length($prefix));
+        $suffix = self::attachmentLinks($attachments, $budget);
 
-        if ($body === '') {
+        // An attachment with no caption is still worth relaying — it is the
+        // whole message.
+        if ($body === '' && $suffix === '') {
             return null;
         }
 
-        $prefix = self::sanitizeIrc($author) . ': ';
+        $body = self::truncate($body, max(0, $budget - self::length($suffix)));
 
-        return $prefix . self::truncate($body, max(1, $limit - self::length($prefix)));
+        return $prefix . ltrim($body . $suffix);
+    }
+
+    /**
+     * Renders attachment URLs into the space left over, longest-lived first.
+     *
+     * Fits as many whole links as the budget allows and counts the rest, since
+     * a truncated URL is worse than an honest "(+2 more)" — it looks clickable
+     * and goes nowhere. When not even one fits, it degrades to the count, which
+     * is at least what the old behaviour was.
+     *
+     * A caveat worth knowing rather than discovering: Discord's CDN links are
+     * signed and expire roughly a day after they are issued. A link relayed
+     * into Twitch chat works for viewers reading along live, and will be dead
+     * by the time anyone reads the logs. Nothing here can prevent that — the
+     * unsigned form of these URLs no longer exists.
+     *
+     * @param list<string> $urls
+     */
+    private static function attachmentLinks(array $urls, int $budget): string
+    {
+        $urls = array_values(array_filter(array_map(
+            static fn (mixed $url): string => self::sanitizeIrc((string) $url),
+            $urls,
+        ), self::isRelayableUrl(...)));
+
+        if ($urls === []) {
+            return '';
+        }
+
+        $rendered = '';
+        $shown = 0;
+
+        foreach ($urls as $url) {
+            $remaining = count($urls) - ($shown + 1);
+            $tail = $remaining > 0 ? sprintf(' (+%d more)', $remaining) : '';
+            $candidate = $rendered . ' ' . $url;
+
+            if (self::length($candidate . $tail) > $budget) {
+                break;
+            }
+
+            $rendered = $candidate;
+            ++$shown;
+        }
+
+        if ($shown === 0) {
+            $marker = sprintf(' [%d file%s]', count($urls), count($urls) === 1 ? '' : 's');
+
+            return self::length($marker) <= $budget ? $marker : '';
+        }
+
+        $remaining = count($urls) - $shown;
+
+        return $rendered . ($remaining > 0 ? sprintf(' (+%d more)', $remaining) : '');
+    }
+
+    /**
+     * Whether a URL is safe to put in front of a public chat as a link.
+     *
+     * The host is deliberately not pinned to Discord's CDN. These come from the
+     * gateway's own attachment objects, so they are already trusted, and
+     * hard-coding hostnames would mean a future CDN domain silently degrading
+     * every attachment to a bare count. What is checked is the shape: HTTPS
+     * only, and nothing that could break out of the IRC line.
+     */
+    private static function isRelayableUrl(string $url): bool
+    {
+        return $url !== ''
+            && str_starts_with($url, 'https://')
+            && preg_match('/[\s\x00-\x1F\x7F]/u', $url) !== 1;
     }
 
     /**

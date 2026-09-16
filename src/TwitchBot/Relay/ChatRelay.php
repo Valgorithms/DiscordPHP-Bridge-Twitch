@@ -63,7 +63,7 @@ final class ChatRelay
             $this->userNames($message),
             $this->channelNames($message),
             $this->roleNames($message),
-            $message->attachments?->count() ?? 0,
+            $this->attachmentUrls($message),
         );
 
         if ($text === null) {
@@ -179,6 +179,30 @@ final class ChatRelay
             ?? $message->author->displayname
             ?? $message->author->username
             ?? 'someone');
+    }
+
+    /**
+     * The CDN link for each attachment, in the order they were posted.
+     *
+     * `url` rather than `proxy_url`: both are signed and both expire, but `url`
+     * is the canonical one, and the proxy adds nothing for a recipient who is
+     * going to open it in a browser.
+     *
+     * @return list<string>
+     */
+    private function attachmentUrls(Message $message): array
+    {
+        $urls = [];
+
+        foreach ($message->attachments ?? [] as $attachment) {
+            $url = (string) ($attachment->url ?? '');
+
+            if ($url !== '') {
+                $urls[] = $url;
+            }
+        }
+
+        return $urls;
     }
 
     /** @return array<string, string> */

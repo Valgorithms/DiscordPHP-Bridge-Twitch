@@ -138,6 +138,20 @@ instruction to the bot, not a remark, and relaying it would put every command
 into the stream's chat. Only a *registered* command counts, so ordinary chat
 full of `!` still relays.
 
+### Attachments
+
+A Discord attachment relays as its CDN link, so chat can open the picture rather
+than be told one exists. Links are budgeted before the message text and appended
+after it is shortened — a URL with its tail cut off is not a URL, whereas a
+shortened sentence still reads. Whole links only: any that will not fit are
+counted as `(+2 more)` rather than truncated into something that looks clickable
+and goes nowhere.
+
+**Those links expire.** Discord signs attachment URLs and they stop working
+roughly a day after they are issued, so a relayed link is good for people
+reading along live and dead by the time anyone reads the logs. There is no way
+around it from this side — the unsigned form of these URLs no longer exists.
+
 ## Commands
 
 Everything below works three ways — as a Discord slash command, as a Discord
