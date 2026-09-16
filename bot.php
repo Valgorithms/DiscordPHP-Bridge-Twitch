@@ -15,6 +15,7 @@ use Monolog\Formatter\LineFormatter;
 use Monolog\Handler\StreamHandler;
 use Monolog\Level;
 use Monolog\Logger;
+use Monolog\LogRecord;
 use TwitchBot\Actions\ApiActions;
 use TwitchBot\Actions\ChannelActions;
 use TwitchBot\Actions\HelpActions;
@@ -24,6 +25,7 @@ use TwitchBot\Actions\StreamActions;
 use TwitchBot\Bot;
 use TwitchBot\Config;
 use TwitchBot\Store;
+use TwitchBot\Support\GatewayDiagnostics;
 
 // Walk up for the autoloader so a PHPacker binary, which runs from a different
 // directory than the sources, still finds it.
@@ -52,8 +54,28 @@ try {
 
 $logger = new Logger('twitchbot');
 $handler = new StreamHandler('php://stdout', Level::fromName($config->logLevel));
-$handler->setFormatter(new LineFormatter("[%datetime%] %level_name%: %message%\n", 'H:i:s', true, true));
+
+// `%context%` matters more than it looks. DiscordPHP reports a fatal gateway
+// close as the message "not reconnecting - critical op code" with the code
+// itself in the context — so a format without it prints a line that says the
+// bot stopped and nothing about why.
+$handler->setFormatter(new LineFormatter("[%datetime%] %level_name%: %message% %context%\n", 'H:i:s', true, true));
 $logger->pushHandler($handler);
+
+// Watch for that close and explain it. There is no event to listen for; the
+// library only ever reports the code by logging it, so this reads it back off
+// the record and prints the fix.
+$logger->pushProcessor(static function (LogRecord $record) use ($logger): LogRecord {
+    $op = GatewayDiagnostics::fromLogContext($record->message, $record->context);
+
+    if ($op !== null) {
+        // Straight to stderr rather than through the logger, which would
+        // re-enter this processor, and so that it is visible at any log level.
+        fwrite(STDERR, GatewayDiagnostics::report($op, (string) ($record->context['reason'] ?? '')));
+    }
+
+    return $record;
+});
 
 $bot = new Bot($config, new Store($config->storePath), ['logger' => $logger]);
 
