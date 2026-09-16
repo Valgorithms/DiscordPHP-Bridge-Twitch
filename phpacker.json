@@ -1,0 +1,7 @@
+{
+    "src": "bot.php",
+    "dest": "bin/build/bot",
+    "ini": "phpacker.ini",
+    "platform": "all",
+    "php": "8.4"
+}
