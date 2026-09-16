@@ -35,6 +35,7 @@ final class Action
      * @param callable(Context, Arguments): (string|null|PromiseInterface) $handler
      * @param Surface|null                                             $only     Restrict to one surface; `null` for both.
      * @param bool                                                     $sensitive Whether the reply may contain a secret.
+     * @param Slash|null                                               $slash    Opt in to a Discord slash command.
      */
     public function __construct(
         public readonly string $name,
@@ -47,8 +48,13 @@ final class Action
         public readonly ?Surface $only = null,
         public readonly bool $sensitive = false,
         public readonly string $group = 'general',
+        public readonly ?Slash $slash = null,
     ) {
         $this->handler = \Closure::fromCallable($handler);
+
+        if ($slash !== null && $only === Surface::Twitch) {
+            throw new \LogicException("Action {$name} is Twitch-only but declares a slash command.");
+        }
     }
 
     /** Whether this action is offered on `$surface` at all. */

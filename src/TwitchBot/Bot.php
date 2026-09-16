@@ -27,6 +27,7 @@ use Twitch\Twitch;
 use TwitchBot\Api\RepositoryDispatcher;
 use TwitchBot\Command\ActionRegistry;
 use TwitchBot\Command\DiscordAdapter;
+use TwitchBot\Command\SlashAdapter;
 use TwitchBot\Command\TwitchAdapter;
 use TwitchBot\Relay\ChatRelay;
 use TwitchBot\Relay\TwitchGateway;
@@ -285,7 +286,7 @@ class Bot extends MessageCommandClient
 
                 $this->warnIfCannotRefresh();
 
-                (new DiscordAdapter($this, $this->actions))->register();
+                $this->registerDiscord();
                 (new TwitchAdapter($this, $this->actions, $this->twitchCommands))->register();
                 (new ChatRelay($this))->attach();
 
@@ -300,9 +301,22 @@ class Bot extends MessageCommandClient
                 $this->logger->error('[bot] twitch failed to start: ' . $e->getMessage());
                 $this->logger->warning('[bot] running Discord-only; relay and Twitch commands are unavailable');
 
-                (new DiscordAdapter($this, $this->actions))->register();
+                $this->registerDiscord();
             },
         );
+    }
+
+    /**
+     * Both Discord forms of every action: prefix commands, and slash commands
+     * for the actions that declare one.
+     *
+     * Registered together and exactly once, on either path out of `start()`, so
+     * a Twitch failure costs the Twitch half and nothing else.
+     */
+    private function registerDiscord(): void
+    {
+        (new DiscordAdapter($this, $this->actions))->register();
+        (new SlashAdapter($this, $this->actions))->register();
     }
 
     private function warnIfCannotRefresh(): void

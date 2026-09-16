@@ -20,6 +20,8 @@ use TwitchBot\Command\ActionError;
 use TwitchBot\Command\ActionProvider;
 use TwitchBot\Command\Arguments;
 use TwitchBot\Command\Context;
+use TwitchBot\Command\Slash;
+use TwitchBot\Command\SlashOption;
 
 /**
  * Moderation, chat settings and the broadcast controls.
@@ -44,26 +46,26 @@ final class ModerationActions implements ActionProvider
     public function actions(): array
     {
         return [
-            new Action('ban', $this->ban(...), 'Ban someone', '<user> [reason]', access: Access::Moderator, group: 'moderation'),
-            new Action('unban', $this->unban(...), 'Lift a ban', '<user>', access: Access::Moderator, group: 'moderation'),
-            new Action('timeout', $this->timeout(...), 'Time someone out', '<user> [seconds] [reason]', access: Access::Moderator, aliases: ['to'], group: 'moderation'),
-            new Action('vip', $this->vip(...), 'Give VIP', '<user>', access: Access::Broadcaster, group: 'moderation'),
-            new Action('unvip', $this->unvip(...), 'Take VIP away', '<user>', access: Access::Broadcaster, group: 'moderation'),
-            new Action('mod', $this->mod(...), 'Give moderator', '<user>', access: Access::Broadcaster, group: 'moderation'),
-            new Action('unmod', $this->unmod(...), 'Take moderator away', '<user>', access: Access::Broadcaster, group: 'moderation'),
-            new Action('clear', $this->clear(...), 'Clear the chat', access: Access::Moderator, group: 'moderation'),
-            new Action('announce', $this->announce(...), 'Post a highlighted announcement', '<message>', access: Access::Moderator, group: 'moderation'),
-            new Action('shoutout', $this->shoutout(...), 'Shout out another channel', '<channel>', access: Access::Moderator, aliases: ['so'], cooldown: 120, group: 'moderation'),
-            new Action('slow', $this->slow(...), 'Slow mode on (seconds) or off', '[seconds|off]', access: Access::Moderator, group: 'moderation'),
-            new Action('subonly', $this->subonly(...), 'Subscriber-only chat on or off', '[on|off]', access: Access::Moderator, group: 'moderation'),
-            new Action('emoteonly', $this->emoteonly(...), 'Emote-only chat on or off', '[on|off]', access: Access::Moderator, group: 'moderation'),
+            new Action('ban', $this->ban(...), 'Ban someone', '<user> [reason]', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true), new SlashOption('reason', 'Shown in the moderation log.')])),
+            new Action('unban', $this->unban(...), 'Lift a ban', '<user>', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
+            new Action('timeout', $this->timeout(...), 'Time someone out', '<user> [seconds] [reason]', access: Access::Moderator, aliases: ['to'], group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true), new SlashOption('seconds', 'How long, in seconds. Defaults to 600.', SlashOption::INTEGER), new SlashOption('reason', 'Shown in the moderation log.')])),
+            new Action('vip', $this->vip(...), 'Give VIP', '<user>', access: Access::Broadcaster, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
+            new Action('unvip', $this->unvip(...), 'Take VIP away', '<user>', access: Access::Broadcaster, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
+            new Action('mod', $this->mod(...), 'Give moderator', '<user>', access: Access::Broadcaster, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
+            new Action('unmod', $this->unmod(...), 'Take moderator away', '<user>', access: Access::Broadcaster, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
+            new Action('clear', $this->clear(...), 'Clear the chat', access: Access::Moderator, group: 'moderation', slash: new Slash()),
+            new Action('announce', $this->announce(...), 'Post a highlighted announcement', '<message>', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('message', 'The announcement text.', SlashOption::STRING, true)])),
+            new Action('shoutout', $this->shoutout(...), 'Shout out another channel', '<channel>', access: Access::Moderator, aliases: ['so'], cooldown: 120, group: 'moderation', slash: new Slash([new SlashOption('channel', 'The Twitch channel to shout out.', SlashOption::STRING, true)])),
+            new Action('slow', $this->slow(...), 'Slow mode on (seconds) or off', '[seconds|off]', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('seconds', 'Seconds between messages, or "off".')])),
+            new Action('subonly', $this->subonly(...), 'Subscriber-only chat on or off', '[on|off]', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('state', '"on" or "off". Defaults to on.')])),
+            new Action('emoteonly', $this->emoteonly(...), 'Emote-only chat on or off', '[on|off]', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('state', '"on" or "off". Defaults to on.')])),
             // No `followers` alias: that name belongs to the read-only
             // follower count in StreamActions, and the registry rejects the
             // clash rather than letting one silently shadow the other.
-            new Action('followersonly', $this->followersonly(...), 'Followers-only chat, with an optional minutes threshold', '[minutes|off]', access: Access::Moderator, aliases: ['followermode'], group: 'moderation'),
-            new Action('raid', $this->raid(...), 'Raid another channel', '<channel>', access: Access::Broadcaster, group: 'moderation'),
-            new Action('unraid', $this->unraid(...), 'Cancel a pending raid', access: Access::Broadcaster, group: 'moderation'),
-            new Action('commercial', $this->commercial(...), 'Start an ad break', '[seconds]', access: Access::Broadcaster, group: 'moderation'),
+            new Action('followersonly', $this->followersonly(...), 'Followers-only chat, with an optional minutes threshold', '[minutes|off]', access: Access::Moderator, aliases: ['followermode'], group: 'moderation', slash: new Slash([new SlashOption('minutes', 'Minimum follow age in minutes, or "off".')])),
+            new Action('raid', $this->raid(...), 'Raid another channel', '<channel>', access: Access::Broadcaster, group: 'moderation', slash: new Slash([new SlashOption('channel', 'The Twitch channel to raid.', SlashOption::STRING, true)])),
+            new Action('unraid', $this->unraid(...), 'Cancel a pending raid', access: Access::Broadcaster, group: 'moderation', slash: new Slash()),
+            new Action('commercial', $this->commercial(...), 'Start an ad break', '[seconds]', access: Access::Broadcaster, group: 'moderation', slash: new Slash([new SlashOption('seconds', 'Ad break length in seconds. Defaults to 60.', SlashOption::INTEGER)])),
         ];
     }
 
@@ -72,7 +74,7 @@ final class ModerationActions implements ActionProvider
     /** @return PromiseInterface<string> */
     private function ban(Context $context, Arguments $arguments): PromiseInterface
     {
-        $reason = $arguments->rest(1);
+        $reason = $this->reason($arguments, 1);
 
         return $this->onUser($context, $arguments, fn (string $broadcaster, array $user) =>
             $context->bot->getTwitch()->moderation
@@ -96,8 +98,10 @@ final class ModerationActions implements ActionProvider
         $reasonFrom = 1;
 
         // `timeout bob 300 spam` and `timeout bob spam` both have to work, so
-        // the duration is only consumed when it actually looks like one.
-        $second = (string) $arguments->get(1, '');
+        // the duration is only consumed when it actually looks like one. A
+        // slash command supplies it by name, where there is no ambiguity.
+        $second = $arguments->named('seconds') ?? (string) $arguments->get(1, '');
+
         if ($second !== '' && preg_match('/^\d+$/', $second) === 1) {
             $seconds = (int) $second;
             $reasonFrom = 2;
@@ -107,7 +111,7 @@ final class ModerationActions implements ActionProvider
             throw new ActionError(sprintf('a timeout has to be between 1 second and 14 days (%d seconds).', self::MAX_TIMEOUT));
         }
 
-        $reason = $arguments->rest($reasonFrom);
+        $reason = $this->reason($arguments, $reasonFrom);
 
         return $this->onUser($context, $arguments, fn (string $broadcaster, array $user) =>
             $context->bot->getTwitch()->moderation
@@ -340,6 +344,19 @@ final class ModerationActions implements ActionProvider
     {
         return $context->bot->getTwitch()->getUserId()
             ?? throw new ActionError('the bot does not know its own Twitch user id yet.');
+    }
+
+    /**
+     * The reason for a moderation action, from whichever form supplied it.
+     *
+     * The named value wins. A slash command omits an unsupplied optional
+     * entirely, so `/timeout user:bob reason:spam` — no `seconds` — leaves a
+     * gap that stops positional recording at `bob`; reading positionally alone
+     * would silently drop the reason and log the ban as unexplained.
+     */
+    private function reason(Arguments $arguments, int $from): string
+    {
+        return $arguments->named('reason') ?? $arguments->rest($from);
     }
 
     private function isOff(string $value): bool

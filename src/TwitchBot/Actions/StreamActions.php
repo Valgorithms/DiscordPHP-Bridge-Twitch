@@ -20,6 +20,8 @@ use TwitchBot\Command\ActionError;
 use TwitchBot\Command\ActionProvider;
 use TwitchBot\Command\Arguments;
 use TwitchBot\Command\Context;
+use TwitchBot\Command\Slash;
+use TwitchBot\Command\SlashOption;
 use TwitchBot\Support\Format;
 
 /**
@@ -39,6 +41,7 @@ final class StreamActions implements ActionProvider
                 'How long the stream has been live',
                 cooldown: 10,
                 group: 'stream',
+                slash: new Slash(),
             ),
             new Action(
                 'viewers',
@@ -46,6 +49,7 @@ final class StreamActions implements ActionProvider
                 'Current viewer count',
                 cooldown: 10,
                 group: 'stream',
+                slash: new Slash(),
             ),
             new Action(
                 'stream',
@@ -53,6 +57,7 @@ final class StreamActions implements ActionProvider
                 'Everything about the current stream',
                 cooldown: 10,
                 group: 'stream',
+                slash: new Slash(),
             ),
             new Action(
                 'followers',
@@ -60,6 +65,7 @@ final class StreamActions implements ActionProvider
                 'How many followers the channel has',
                 cooldown: 30,
                 group: 'stream',
+                slash: new Slash(),
             ),
             new Action(
                 'clip',
@@ -68,6 +74,7 @@ final class StreamActions implements ActionProvider
                 access: Access::Moderator,
                 cooldown: 30,
                 group: 'stream',
+                slash: new Slash(),
             ),
             new Action(
                 'marker',
@@ -77,6 +84,7 @@ final class StreamActions implements ActionProvider
                 access: Access::Moderator,
                 cooldown: 10,
                 group: 'stream',
+                slash: new Slash([new SlashOption('note', 'An optional note to attach to the marker.')]),
             ),
             new Action(
                 'search',
@@ -85,6 +93,7 @@ final class StreamActions implements ActionProvider
                 '<name>',
                 cooldown: 10,
                 group: 'stream',
+                slash: new Slash([new SlashOption('name', 'The category to search for.', SlashOption::STRING, true)]),
             ),
         ];
     }

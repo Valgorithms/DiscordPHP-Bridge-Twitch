@@ -13,7 +13,8 @@ declare(strict_types=1);
 
 namespace TwitchBot\Actions;
 
-use Discord\Parts\Channel\Message;
+use Discord\Parts\Channel\Channel;
+use Discord\Parts\Guild\Guild;
 use React\Promise\PromiseInterface;
 
 use function React\Promise\resolve;
@@ -24,6 +25,9 @@ use TwitchBot\Command\ActionError;
 use TwitchBot\Command\ActionProvider;
 use TwitchBot\Command\Arguments;
 use TwitchBot\Command\Context;
+use TwitchBot\Command\Slash;
+use TwitchBot\Command\SlashOption;
+use TwitchBot\Command\SlashSubcommand;
 use TwitchBot\Command\Surface;
 use TwitchBot\Support\Format;
 use TwitchBot\Support\MessageText;
@@ -58,6 +62,21 @@ final class RelayActions implements ActionProvider
                 aliases: ['config'],
                 only: Surface::Discord,
                 group: 'relay',
+                // The sub-command names and option order deliberately mirror
+                // the prefix form, so `/relay link twitch:x channel:#y` and
+                // `!relay link x #y` produce identical arguments and run the
+                // same handler.
+                slash: new Slash(subcommands: [
+                    new SlashSubcommand('link', 'Bridge a Discord channel to a Twitch channel.', [
+                        new SlashOption('twitch', 'The Twitch channel to relay with, e.g. "twitchdev".', SlashOption::STRING, true),
+                        new SlashOption('channel', 'Which Discord channel. Defaults to this one.', SlashOption::CHANNEL),
+                    ]),
+                    new SlashSubcommand('unlink', 'Stop relaying a Discord channel.', [
+                        new SlashOption('channel', 'Which Discord channel. Defaults to this one.', SlashOption::CHANNEL),
+                    ]),
+                    new SlashSubcommand('list', 'Show every relay configured on this server.'),
+                    new SlashSubcommand('reset', 'Clear every relay on this server.'),
+                ], ephemeral: true),
             ),
             new Action(
                 'bridge',
@@ -65,6 +84,7 @@ final class RelayActions implements ActionProvider
                 'Show where this channel relays to',
                 cooldown: 15,
                 group: 'relay',
+                slash: new Slash(),
             ),
         ];
     }
@@ -83,7 +103,7 @@ final class RelayActions implements ActionProvider
     /** @return PromiseInterface<string> */
     private function link(Context $context, Arguments $arguments): PromiseInterface
     {
-        $message = $this->message($context);
+        $message = $this->source($context);
         $guildId = (string) ($message->guild_id ?? '');
 
         if ($guildId === '') {
@@ -100,12 +120,21 @@ final class RelayActions implements ActionProvider
             ?? throw new ActionError(sprintf('`%s` is not a valid Twitch channel name.', $raw));
 
         $channelId = $this->targetChannel($context, $arguments, 2);
+        $guild = $message->guild ?? null;
 
-        // Check the channel exists before wiring it up. A typo would otherwise
-        // produce a bridge that silently never works — the bot would join a
-        // channel that isn't there and simply never hear anything.
+        // A voice or category channel cannot carry the relay, and pointing at
+        // one produces a link that can never work.
+        $target = $guild?->channels->get('id', $channelId);
+
+        if ($target instanceof Channel && ! $target->isTextBased()) {
+            throw new ActionError(sprintf('<#%s> cannot carry text messages.', $channelId));
+        }
+
+        // Check the Twitch channel exists before wiring it up. A typo would
+        // otherwise produce a relay that silently never works — the bot would
+        // join a channel that isn't there and simply never hear anything.
         return $context->bot->resolveTwitchUser($login)->then(
-            function (?array $user) use ($context, $guildId, $channelId, $login): string {
+            function (?array $user) use ($context, $guildId, $channelId, $login, $guild): string {
                 if ($user === null) {
                     throw new ActionError(sprintf('Twitch has no channel called `%s`.', $login));
                 }
@@ -118,14 +147,14 @@ final class RelayActions implements ActionProvider
                     $channelId,
                     $user['display_name'],
                     $user['login'],
-                );
+                ) . ($this->deliveryWarning($guild, $channelId) ?? '');
             },
         );
     }
 
     private function unlink(Context $context, Arguments $arguments): string
     {
-        $message = $this->message($context);
+        $message = $this->source($context);
         $guildId = (string) ($message->guild_id ?? '');
 
         if ($guildId === '') {
@@ -147,7 +176,7 @@ final class RelayActions implements ActionProvider
 
     private function list(Context $context): string
     {
-        $message = $this->message($context);
+        $message = $this->source($context);
         $guildId = (string) ($message->guild_id ?? '');
         $links = $context->bot->getStore()->links()->forGuild($guildId);
 
@@ -166,7 +195,7 @@ final class RelayActions implements ActionProvider
 
     private function reset(Context $context): string
     {
-        $message = $this->message($context);
+        $message = $this->source($context);
         $guildId = (string) ($message->guild_id ?? '');
         $count = count($context->bot->getStore()->links()->forGuild($guildId));
 
@@ -191,7 +220,7 @@ final class RelayActions implements ActionProvider
                 : sprintf('this chat is relaying to %d Discord channel%s.', $count, $count === 1 ? '' : 's');
         }
 
-        $message = $this->message($context);
+        $message = $this->source($context);
         $login = $context->bot->getStore()->links()->twitchFor((string) $message->channel_id);
 
         return resolve($login === null
@@ -219,17 +248,67 @@ final class RelayActions implements ActionProvider
             throw new ActionError(sprintf('`%s` is not a channel — mention one like #general.', $explicit));
         }
 
-        return (string) $this->message($context)->channel_id;
+        return (string) $this->source($context)->channel_id;
     }
 
-    private function message(Context $context): Message
+    /**
+     * The Discord message or interaction behind this invocation.
+     *
+     * Typed loosely on purpose. A prefix command arrives as a `Message` and a
+     * slash command as an `Interaction`; the two share no base class, but they
+     * do share `guild_id`, `channel_id` and `guild`, which is everything this
+     * provider reads. Accepting both is what lets one handler serve both forms
+     * — the alternative is a parallel implementation, which is exactly the
+     * duplication this design exists to avoid.
+     */
+    private function source(Context $context): object
     {
-        $message = $context->message;
+        $source = $context->message;
 
-        if (! $message instanceof Message) {
+        if ($source === null || $context->surface !== Surface::Discord) {
             throw new ActionError('that command only works from Discord.');
         }
 
-        return $message;
+        return $source;
+    }
+
+    /**
+     * Warns now if the bot cannot actually deliver into the channel, rather
+     * than letting the first Twitch message disappear silently.
+     *
+     * A relay that is configured correctly but cannot post looks identical to
+     * one that is misconfigured, and the only evidence is an absence — so the
+     * permissions are checked at the moment someone is watching.
+     */
+    private function deliveryWarning(?Guild $guild, string $channelId): ?string
+    {
+        $channel = $guild?->channels->get('id', $channelId);
+
+        if (! $channel instanceof Channel) {
+            return null;
+        }
+
+        $perms = $channel->getBotPermissions();
+
+        if ($perms === null || ($perms->administrator ?? false)) {
+            return null;
+        }
+
+        $missing = [];
+        foreach (['view_channel' => 'View Channel', 'send_messages' => 'Send Messages'] as $flag => $label) {
+            if (! ($perms->{$flag} ?? false)) {
+                $missing[] = $label;
+            }
+        }
+
+        if ($missing !== []) {
+            return "\n⚠️ I can't post there yet — grant me **" . implode('**, **', $missing) . '**.';
+        }
+
+        if (! ($perms->manage_webhooks ?? false)) {
+            return "\nℹ️ Grant me **Manage Webhooks** there and Twitch chatters will show up with their own names and avatars.";
+        }
+
+        return null;
     }
 }

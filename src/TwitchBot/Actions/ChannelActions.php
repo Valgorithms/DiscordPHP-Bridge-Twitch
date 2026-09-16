@@ -21,6 +21,8 @@ use TwitchBot\Command\ActionError;
 use TwitchBot\Command\ActionProvider;
 use TwitchBot\Command\Arguments;
 use TwitchBot\Command\Context;
+use TwitchBot\Command\Slash;
+use TwitchBot\Command\SlashOption;
 use TwitchBot\Support\Format;
 
 /**
@@ -55,6 +57,7 @@ final class ChannelActions implements ActionProvider
                 access: Access::Everyone,
                 cooldown: 5,
                 group: 'channel',
+                slash: new Slash([new SlashOption('text', 'The new title. Leave empty to read the current one.')]),
             ),
             new Action(
                 'game',
@@ -65,6 +68,7 @@ final class ChannelActions implements ActionProvider
                 aliases: ['category'],
                 cooldown: 5,
                 group: 'channel',
+                slash: new Slash([new SlashOption('name', 'The new category. Leave empty to read the current one.')]),
             ),
             new Action(
                 'tags',
@@ -74,6 +78,7 @@ final class ChannelActions implements ActionProvider
                 access: Access::Everyone,
                 cooldown: 5,
                 group: 'channel',
+                slash: new Slash([new SlashOption('tags', 'Comma-separated. Leave empty to read the current ones.')]),
             ),
             new Action(
                 'channel',
@@ -83,6 +88,7 @@ final class ChannelActions implements ActionProvider
                 aliases: ['info'],
                 cooldown: 10,
                 group: 'channel',
+                slash: new Slash(),
             ),
         ];
     }

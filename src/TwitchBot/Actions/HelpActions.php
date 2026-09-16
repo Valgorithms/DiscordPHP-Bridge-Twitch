@@ -18,6 +18,8 @@ use TwitchBot\Command\Action;
 use TwitchBot\Command\ActionProvider;
 use TwitchBot\Command\Arguments;
 use TwitchBot\Command\Context;
+use TwitchBot\Command\Slash;
+use TwitchBot\Command\SlashOption;
 use TwitchBot\Command\Surface;
 use TwitchBot\Support\Format;
 
@@ -43,6 +45,7 @@ final class HelpActions implements ActionProvider
                 aliases: ['commands'],
                 cooldown: 5,
                 group: 'general',
+                slash: new Slash([new SlashOption('command', 'Explain one command instead of listing them all.')], ephemeral: true),
             ),
             new Action(
                 'about',
@@ -55,6 +58,7 @@ final class HelpActions implements ActionProvider
                 'What this bot is',
                 cooldown: 30,
                 group: 'general',
+                slash: new Slash(ephemeral: true),
             ),
         ];
     }

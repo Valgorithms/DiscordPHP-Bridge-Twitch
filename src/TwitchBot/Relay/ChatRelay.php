@@ -132,13 +132,20 @@ final class ChatRelay
             $channel = $this->bot->getChannel($channelId);
 
             if (! $channel instanceof Channel) {
+                $this->bot->getLogger()->debug('[relay] no cached channel ' . $channelId . ' — skipping');
+
                 continue;
             }
 
             $this->bot->resolveTwitchAvatar((string) $message->user)->then(
                 fn (?string $avatar) => $this->bot->delivery()->deliver($channel, $author, $text, $avatar),
-            )->then(null, function (\Throwable $e) use ($channelId): void {
-                $this->bot->getLogger()->debug('[relay] delivery to ' . $channelId . ' failed: ' . $e->getMessage());
+            )->then(null, function (\Throwable $e) use ($channel): void {
+                $this->bot->getLogger()->warning('[relay] delivery to ' . $channel->id . ' failed: ' . $e->getMessage());
+
+                // Drop the cached webhook. If it was deleted out from under us,
+                // every later message would otherwise keep failing against the
+                // same dead handle; forgetting it means the next one recreates.
+                $this->bot->delivery()->forget($channel);
             });
         }
     }

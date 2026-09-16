@@ -12,13 +12,14 @@ driven from either chat.
 #general  ──────────►  twitch.tv/twitchdev
           ◄──────────
 
-!title Back in ten      ← works in either one, and means the same thing
+!title Back in ten      ← Discord chat, Twitch chat, or /title — same command
 ```
 
 ## The idea
 
 A command is declared **once**, as an `Action`, and registered into both chat
-clients:
+clients — and, where it declares typed parameters, as a Discord slash command
+as well:
 
 ```php
 new Action(
@@ -27,13 +28,18 @@ new Action(
     'Show the stream title, or set it',
     '[new title]',
     access: Access::Everyone,
+    slash: new Slash([new SlashOption('text', 'The new title.')]),
 );
 ```
 
-Handlers never see a `Message` or a `ChatMessage`. They get a `Context` — who
-asked, from where, what they may do, and which Twitch channel this acts on —
-and return a string. Two adapters do the rest, and they are the only code in
-the project that knows either platform exists.
+Handlers never see a `Message`, a `ChatMessage` or an `Interaction`. They get a
+`Context` — who asked, from where, what they may do, and which Twitch channel
+this acts on — and return a string. Three adapters do the rest, and they are the
+only code in the project that knows any platform exists.
+
+The slash adapter renders Discord's typed options back into the text the prefix
+form would have produced — a channel picker becomes `<#id>` — so `/relay link
+twitch:x` and `!relay link x` run the same handler down to the argument indices.
 
 That `Context` is what makes one definition serviceable from two places. On
 Twitch, the channel a command was typed in *is* the channel it acts on, and its
@@ -53,8 +59,9 @@ php bot.php
 Three things are easy to miss:
 
 - **Enable the Message Content intent** on the Discord application page.
-  Without it every message arrives empty — no relay, and no command is ever
-  recognised.
+  Without it the relay cannot read messages to relay, and prefix commands are
+  never recognised. Every command is also a slash command, so those keep
+  working — but the relay does not.
 - **Grant the bot Manage Webhooks** in a relayed channel. Without it the relay
   still works, but Twitch chat arrives as plain `**name:** message` bot messages
   instead of per-chatter names and avatars.
@@ -78,13 +85,25 @@ application is often the cleaner move.
 ## The relay
 
 ```
-relay link twitchdev              bridge this channel to twitch.tv/twitchdev
-relay link twitchdev #general     ...or to a named one
-relay unlink [#channel]           stop
-relay list                        what this server has configured
-relay reset                       clear it all
-bridge                            where am I relaying? (works in Twitch chat too)
+/relay link   twitch:twitchdev [channel:#general]    bridge a channel
+/relay unlink [channel:#general]                     stop
+/relay list                                          what this server has
+/relay reset                                         clear it all
+/bridge                                              where am I relaying?
 ```
+
+Or by prefix, identically:
+
+```
+!relay link twitchdev [#general]
+!relay unlink [#channel]
+!relay list
+!relay reset
+!bridge                           works in Twitch chat too
+```
+
+`/relay` replies are ephemeral — configuration is nobody else's business, and it
+keeps the channel clean.
 
 `relay` is restricted to the server owner or anyone with **Administrator** /
 **Manage Server**, and that gate is the security model for the whole project:
@@ -94,7 +113,10 @@ Twitch chat. Point it at a private channel and that channel is on stream.
 `link` accepts a bare name, `#name`, or a full `twitch.tv/...` URL, and checks
 the channel exists before wiring it up — a typo otherwise produces a bridge that
 silently never works, because the bot joins a channel that isn't there and never
-hears anything.
+hears anything. It also checks its own permissions in the target channel and
+says so up front, rather than letting the first relayed message vanish: a relay
+that is configured correctly but cannot post looks exactly like one that is
+misconfigured, and the only evidence is an absence.
 
 Several Discord servers may follow the same streamer; they share one IRC
 membership and each gets a copy.
@@ -118,9 +140,9 @@ full of `!` still relays.
 
 ## Commands
 
-Everything below works from Discord **and** Twitch chat unless marked
-otherwise. `help` lists what you personally can run; `help <command>` explains
-one.
+Everything below works three ways — as a Discord slash command, as a Discord
+prefix command, and in Twitch chat — unless marked otherwise. `help` lists what
+you personally can run; `help <command>` explains one.
 
 | | |
 | --- | --- |
@@ -139,6 +161,10 @@ one.
 | `raid` · `unraid` · `commercial` | Broadcast (broadcaster) |
 | `relay ...` | Configure the relay (Discord, admin) |
 | `api ...` | Anything else (owner) |
+
+All 33 are registered as slash commands, so a server that has not granted the
+Message Content intent still gets every command — it only loses the relay. A
+test asserts that stays true.
 
 Permissions map onto one ladder — everyone, moderator, broadcaster, owner —
 because two systems' worth of permissions would have to be explained twice.
@@ -208,6 +234,38 @@ senders that each stay under the limit will still breach it together.
 broadcaster or a channel editor. When it isn't, Twitch answers 401 — which is
 translated, because the raw version sends people looking at their token when the
 token is fine.
+
+## Coming from DiscordPHP-TwitchRelay
+
+This project supersedes it. Everything the relay did, this does:
+
+| Relay | Here |
+| --- | --- |
+| `/config set channel:#x twitch:y` | `/relay link twitch:y channel:#x` |
+| `/config unset channel:#x` | `/relay unlink channel:#x` |
+| `/config view` | `/relay list` |
+| `/config reset` | `/relay reset` |
+
+Same permission gate (owner / Administrator / Manage Server), same ephemeral
+replies, same up-front warning when the bot cannot post in the target channel,
+same loop prevention, same IRC sanitisation, same rate limiting.
+
+**The stored state is compatible.** `Store` and `Links` are the same code, and
+both write the same `{"links": {guild: {channel: login}}}` shape — so copying
+the file across preserves every configured bridge. Only the path changed
+(`var/relay.json` → `storage/bridges.json`):
+
+```bash
+mkdir -p storage && cp ../DiscordPHP-TwitchRelay/var/relay.json storage/bridges.json
+```
+
+Two things do change. The command is `/relay`, not `/config` — deliberately, as
+`/config` is a name several bots want and Tutelar already registers it globally.
+And `TWITCH_OWNER_LOGIN` is new; without it or `DISCORD_OWNER_ID`, `api` is
+unreachable.
+
+If you run both at once, give them separate Discord applications and separate
+Twitch token pairs — two bots refreshing one pair will lock each other out.
 
 ## Layout
 

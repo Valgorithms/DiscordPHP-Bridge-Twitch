@@ -21,6 +21,8 @@ use TwitchBot\Command\ActionError;
 use TwitchBot\Command\ActionProvider;
 use TwitchBot\Command\Arguments;
 use TwitchBot\Command\Context;
+use TwitchBot\Command\Slash;
+use TwitchBot\Command\SlashOption;
 use TwitchBot\Command\Surface;
 use TwitchBot\Support\Format;
 
@@ -61,6 +63,15 @@ final class ApiActions implements ActionProvider
                 'list [repository] | help <call> | <repository.method> key=value ...',
                 access: Access::Owner,
                 group: 'api',
+                // Typed options cannot express "any number of arbitrary
+                // key=value pairs", so the arguments arrive as one string and
+                // are parsed by {@see namedFor()} exactly as the prefix form
+                // parses them. Ephemeral: responses can be long and are of
+                // interest to one person.
+                slash: new Slash([
+                    new SlashOption('call', 'repository.method, e.g. channels.modify', SlashOption::STRING, true),
+                    new SlashOption('args', 'key=value pairs, e.g. broadcaster_id=123 first=5'),
+                ], ephemeral: true),
             ),
         ];
     }
@@ -132,9 +143,34 @@ final class ApiActions implements ActionProvider
             ));
         }
 
-        return $context->bot->getDispatcher()->call($call, $arguments->allNamed())->then(
+        return $context->bot->getDispatcher()->call($call, $this->namedFor($arguments))->then(
             fn (mixed $result): string => $this->render($context, $call, $result),
         );
+    }
+
+    /**
+     * The `key=value` arguments for the call.
+     *
+     * The prefix form parses them out of the line already. The slash form
+     * cannot — Discord has no option type meaning "arbitrary pairs" — so they
+     * arrive as one `args` string and are parsed here with the same parser, so
+     * both forms accept identical syntax, quoting included.
+     *
+     * @return array<string, string>
+     */
+    private function namedFor(Arguments $arguments): array
+    {
+        $raw = $arguments->named('args');
+
+        if ($raw === null) {
+            return $arguments->allNamed();
+        }
+
+        // `call` and `args` are this command's own options, not the endpoint's.
+        $named = Arguments::fromString($raw)->allNamed();
+        unset($named['call'], $named['args']);
+
+        return $named;
     }
 
     /**
