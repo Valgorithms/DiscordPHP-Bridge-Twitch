@@ -1,0 +1,57 @@
+{
+    "name": "vzgcoders/discordphp-twitchbot",
+    "description": "A Discord and Twitch bot on one event loop: a configurable two-way chat relay, plus the Twitch Helix API driven from either chat.",
+    "keywords": ["discord", "twitch", "helix", "chat", "relay", "bridge", "bot", "reactphp", "async"],
+    "type": "project",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Valithor Obsidion",
+            "email": "valithor@valgorithms.com"
+        }
+    ],
+    "require": {
+        "php": "^8.4",
+        "team-reflex/discord-php": "dev-master",
+        "discord-php/http": "dev-master as 10.1.7",
+        "vzgcoders/twitchphp": "@dev",
+        "monolog/monolog": "^3.0",
+        "react/event-loop": "^1.5",
+        "react/promise": "^3.2"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.64",
+        "phpunit/phpunit": "^11.0 || ^10.5",
+        "phpacker/phpacker": "^0.6.4"
+    },
+    "repositories": [
+        { "type": "path", "url": "../DiscordPHP", "options": { "symlink": true } },
+        { "type": "path", "url": "../DiscordPHP-Http", "options": { "symlink": true } },
+        { "type": "path", "url": "../TwitchPHP", "options": { "symlink": true } },
+        { "type": "path", "url": "../TwitchPHP-Http", "options": { "symlink": true } }
+    ],
+    "autoload": {
+        "psr-4": {
+            "TwitchBot\\": "src/TwitchBot/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "TwitchBot\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "cs": "php-cs-fixer fix",
+        "test": "phpunit",
+        "phpacker": "@phpacker:bot",
+        "phpacker:bot": "phpacker build --src=bot.php --dest=bin/build/bot"
+    },
+    "scripts-descriptions": {
+        "phpacker:bot": "Build a standalone binary for bot.php into bin/build/bot."
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "config": {
+        "sort-packages": true
+    }
+}
