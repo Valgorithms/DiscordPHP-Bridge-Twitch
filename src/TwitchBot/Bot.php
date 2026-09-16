@@ -57,26 +57,75 @@ class Bot extends MessageCommandClient
     public const INTENTS = Intents::GUILDS | Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT;
 
     /**
-     * Scopes requested when re-authorizing by device code.
+     * Exactly the scopes the built-in commands need — no more.
      *
-     * Wider than the relay alone needs, because the API commands act on the
-     * broadcaster's channel: editing the title and category needs
-     * `channel:manage:broadcast`, and the moderation commands need their own.
-     * A narrower grant still runs — the endpoints it does not cover fail with a
-     * missing-scope error naming what is absent.
+     * Each line names what stops working without it. Nothing is requested
+     * speculatively: every extra scope makes the consent screen longer and
+     * scarier, and grants the bot authority it has no code to use.
+     *
+     * Two families, and the difference decides what the bot can act on:
+     *
+     * - `channel:*` requires the token to belong to the **broadcaster**, or to
+     *   an account they have added as a channel editor. These only ever work on
+     *   the channel that authorized the bot.
+     * - `moderator:*` works on any channel where the bot account is a
+     *   **moderator**, which is what lets one bot moderate many channels.
+     *
+     * So `title`, `vip`, `mod`, `raid` and `commercial` act on the authorizing
+     * account's own channel, while `ban`, `timeout`, `clear`, `announce` and
+     * the chat modes work anywhere the bot is modded.
+     *
+     * {@see ApiActions} can reach endpoints beyond this list. That is
+     * deliberate and not a reason to widen it: an uncovered call fails with a
+     * {@see \Twitch\Exceptions\MissingScopeException} naming the scope it
+     * wanted, which is a better outcome than holding every permission on the
+     * chance somebody types one.
+     *
+     * Verified against the Twitch OpenAPI description rather than the docs
+     * pages. {@link https://github.com/DmitryScaletta/twitch-api-swagger}
      *
      * @var list<string>
      */
     public const TWITCH_SCOPES = [
+        // Reading and speaking in chat: the relay, and every command reply.
         'chat:read',
         'chat:edit',
+
+        // `title`, `game`, `tags`, and `marker`.
         'channel:manage:broadcast',
-        'channel:read:subscriptions',
-        'moderator:manage:banned_users',
-        'moderator:manage:chat_messages',
-        'moderator:manage:chat_settings',
+
+        // `followers`.
         'moderator:read:followers',
+
+        // `clip`.
         'clips:edit',
+
+        // `ban`, `unban`, `timeout`.
+        'moderator:manage:banned_users',
+
+        // `clear`.
+        'moderator:manage:chat_messages',
+
+        // `announce`.
+        'moderator:manage:announcements',
+
+        // `shoutout`.
+        'moderator:manage:shoutouts',
+
+        // `slow`, `subonly`, `emoteonly`, `followersonly`.
+        'moderator:manage:chat_settings',
+
+        // `vip`, `unvip`.
+        'channel:manage:vips',
+
+        // `mod`, `unmod`.
+        'channel:manage:moderators',
+
+        // `raid`, `unraid`.
+        'channel:manage:raids',
+
+        // `commercial`.
+        'channel:edit:commercial',
     ];
 
     private readonly Twitch $twitch;
