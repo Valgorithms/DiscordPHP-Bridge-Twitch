@@ -152,6 +152,50 @@ roughly a day after they are issued, so a relayed link is good for people
 reading along live and dead by the time anyone reads the logs. There is no way
 around it from this side — the unsigned form of these URLs no longer exists.
 
+## Surviving a restart
+
+Bridges set up with `relay link` live in `storage/bridges.json` and are
+reloaded on every start — nothing has to be set up again, and the Twitch
+connection rejoins exactly the channels that were bridged. That file is the
+only record of them, so it is treated as one:
+
+- **Writes are atomic and flushed to disk.** A crash mid-write, or a machine
+  losing power, cannot leave a half-written file where the configuration was.
+- **The last good copy is kept** beside it as `bridges.json.bak`, written after
+  each successful save.
+- **A damaged file is never silently replaced.** If the JSON doesn't parse the
+  backup is used; if that fails too, the file is preserved as
+  `bridges.json.corrupt-<timestamp>` and the bot starts empty rather than
+  overwriting it on the next `relay link`.
+- **Entries of the wrong shape are dropped, not loaded**, so a hand-edited file
+  can't take the bot down — and the good entries in it still survive the next
+  write.
+
+Ten seconds after startup the bot checks what it restored: can it still see
+each Discord channel, does each Twitch channel still exist, and — the one a
+restart is specifically meant to re-establish — is the IRC connection actually
+in it? A JOIN that silently failed leaves a bridge that works in one direction
+only. Findings go to the log and, if `DISCORD_OWNER_ID` is set, to a DM.
+Nothing is pruned automatically: a guild can be briefly unavailable during an
+outage, and deleting someone's configuration over a bad ten seconds is worse
+than telling them about it.
+
+### Disk I/O and the event loop
+
+A blocking write stops the loop: while it runs, no heartbeat is sent and
+nothing is relayed. Saves therefore go through
+[react/filesystem](https://github.com/reactphp/filesystem) — which performs
+them off the loop **only** with `ext-uv` (Linux, macOS and Windows) or
+`ext-eio` (POSIX). With neither, that library's own fallback is
+`file_put_contents()` wrapped in an already-resolved promise, so the bot does
+the write itself instead and, since it is blocking anyway, blocks *properly*:
+`fflush()` and `fsync()`, which `putContents()` cannot express. Measured on a
+Windows host: 3.5 ms blocking, 0.07 ms with an async backend. The bot logs
+which one it picked at startup.
+
+Either way the caller never waits — `relay link` answers from memory, the write
+is queued, rapid changes coalesce into one write, and Ctrl-C flushes anything
+outstanding before the loop stops.
 ## Commands
 
 Everything below works three ways — as a Discord slash command, as a Discord
@@ -302,7 +346,8 @@ src/TwitchBot/
     ChatRelay.php                both directions, and loop prevention
     TwitchGateway.php            IRC joins/parts, paced sending
     WebhookDelivery.php          into Discord, with a fallback
-  Support/                       text safety, formatting, rate limiting
+  Support/                       text safety, formatting, rate limiting,
+                                 async disk I/O, the startup bridge check
 ```
 
 The logic worth testing is deliberately pure — routing, parsing, sanitisation,

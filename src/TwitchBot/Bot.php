@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace TwitchBot;
 
 use Discord\MessageCommandClient;
+use Discord\Parts\Channel\Channel;
 use Discord\WebSockets\Intents;
 use React\Promise\PromiseInterface;
 
@@ -32,6 +33,7 @@ use TwitchBot\Command\TwitchAdapter;
 use TwitchBot\Relay\ChatRelay;
 use TwitchBot\Relay\TwitchGateway;
 use TwitchBot\Relay\WebhookDelivery;
+use TwitchBot\Support\BridgeCheck;
 
 /**
  * The bot: DiscordPHP's `MessageCommandClient` and TwitchPHP's `CommandClient`
@@ -140,6 +142,13 @@ class Bot extends MessageCommandClient
     private ?TwitchGateway $twitchGateway = null;
 
     private ?WebhookDelivery $delivery = null;
+
+    /**
+     * How long after startup to check the restored bridges.
+     *
+     * Long enough for the guild caches to fill and the JOINs to land.
+     */
+    public const BRIDGE_CHECK_DELAY = 10.0;
 
     private bool $started = false;
 
@@ -340,6 +349,7 @@ class Bot extends MessageCommandClient
                 (new ChatRelay($this))->attach();
 
                 $this->syncTwitchChannels($this->store->links());
+                $this->reportRestoredBridges();
 
                 $this->logger->info(sprintf(
                     '[bot] %d actions registered on both surfaces',
@@ -351,10 +361,140 @@ class Bot extends MessageCommandClient
                 $this->logger->warning('[bot] running Discord-only; relay and Twitch commands are unavailable');
 
                 $this->registerDiscord();
+                $this->reportRestoredBridges();
             },
         );
     }
 
+    /**
+     * Reports what was restored from disk, and whether it still works.
+     *
+     * Configuration outlives the process, and both ends of a bridge can stop
+     * working while the bot is down — a Discord channel deleted, the bot
+     * removed from the server, a streamer renamed. None of that produces an
+     * error at startup; it produces a bridge that quietly relays nothing,
+     * which looks exactly like a quiet day.
+     *
+     * Nothing is pruned: a guild can be briefly unavailable during a Discord
+     * outage, and deleting somebody's configuration over a bad ten seconds
+     * would be far worse than saying so.
+     */
+    private function reportRestoredBridges(): void
+    {
+        $links = $this->store->links();
+
+        $this->logger->info('[bot] ' . BridgeCheck::restored(
+            $links->count(),
+            count($links->guilds()),
+            $this->store->path(),
+        ));
+
+        // Whether saves actually happen off the loop is a property of the
+        // host, not of this build, so it is worth one line at every start.
+        $this->logger->info('[bot] ' . $this->store->filesystem()->describe());
+
+        // A file that could not be read needs somebody's attention now: the
+        // bot is running with less configuration than it was given.
+        if ($this->store->warnings() !== []) {
+            foreach ($this->store->warnings() as $warning) {
+                $this->logger->warning('[bot] ' . $warning);
+            }
+
+            $this->notifyOwner(
+                "⚠️ **I had trouble reading my bridge configuration.**\n- "
+                . implode("\n- ", $this->store->warnings()),
+            );
+        }
+
+        if ($links->isEmpty()) {
+            return;
+        }
+
+        // Late enough that the guild caches have settled and the JOINs have
+        // had their chance; probing immediately would report both as broken.
+        $this->getLoop()->addTimer(self::BRIDGE_CHECK_DELAY, fn () => $this->verifyBridges());
+    }
+
+    /** Resolves every distinct Twitch channel, then reports on each bridge. */
+    private function verifyBridges(): void
+    {
+        $probes = [];
+
+        foreach ($this->store->links()->logins() as $login) {
+            $probes[$login] = $this->resolveTwitchUser($login)->then(
+                static fn (?array $user): bool => $user !== null,
+                // A lookup that failed is not proof the channel is gone.
+                static fn (): bool => true,
+            );
+        }
+
+        ($probes === [] ? resolve([]) : all($probes))->then(function (array $exists): void {
+            $links = $this->store->links();
+            $joined = $this->twitchGateway?->joined() ?? $links->logins();
+            $rows = [];
+
+            foreach ($links->guilds() as $guildId) {
+                foreach ($links->forGuild($guildId) as $channelId => $login) {
+                    $channelId = (string) $channelId;
+                    $login = (string) $login;
+
+                    $rows[] = [
+                        'channel_id' => $channelId,
+                        'login' => $login,
+                        'channel_ok' => $this->getChannel($channelId) instanceof Channel,
+                        'twitch_ok' => $exists[$login] ?? true,
+                        'joined' => in_array($login, $joined, true),
+                    ];
+                }
+            }
+
+            $summary = BridgeCheck::summarise($rows);
+            $headline = sprintf(
+                '%d of %d bridge%s working',
+                $summary['healthy'],
+                count($rows),
+                count($rows) === 1 ? '' : 's',
+            );
+
+            if ($summary['problems'] === []) {
+                $this->logger->info('[bot] ' . $headline);
+
+                return;
+            }
+
+            $this->logger->warning('[bot] ' . $headline);
+
+            foreach ($summary['problems'] as $problem) {
+                $this->logger->warning('[bot] ' . $problem);
+            }
+
+            $this->notifyOwner(
+                sprintf("⚠️ **%s.**\n- ", $headline) . implode("\n- ", $summary['problems'])
+                . "\n-# Nothing has been removed — use `relay list` to fix or unlink these.",
+            );
+        });
+    }
+
+    /**
+     * Tells a human, when one is configured, rather than only the log.
+     *
+     * A bot that needs attention and only whispers it into a logfile stays
+     * broken until somebody happens to look.
+     */
+    public function notifyOwner(string $markdown): void
+    {
+        $ownerId = $this->config->discordOwnerId;
+
+        if ($ownerId === null || $ownerId === '') {
+            return;
+        }
+
+        $this->users->fetch($ownerId)->then(
+            fn ($user) => $user->sendMessage($markdown),
+        )->then(null, fn (\Throwable $e) => $this->logger->error(
+            '[bot] could not DM the owner: ' . $e->getMessage(),
+        ));
+    }
     /**
      * Both Discord forms of every action: prefix commands, and slash commands
      * for the actions that declare one.
@@ -426,21 +566,11 @@ class Bot extends MessageCommandClient
             $expires,
         ));
 
-        $ownerId = $this->config->discordOwnerId;
-
-        if ($ownerId === null || $ownerId === '') {
-            return;
-        }
-
-        $this->users->fetch($ownerId)->then(
-            fn ($user) => $user->sendMessage(sprintf(
-                "⚠️ **Twitch needs re-authorizing.**\nOpen <%s> and enter `%s` — it expires in %d minutes.",
-                $uri,
-                $code,
-                (int) round($expires / 60),
-            )),
-        )->then(null, fn (\Throwable $e) => $this->logger->error(
-            '[bot] could not DM the owner about re-authorization: ' . $e->getMessage(),
+        $this->notifyOwner(sprintf(
+            "⚠️ **Twitch needs re-authorizing.**\nOpen <%s> and enter `%s` — it expires in %d minutes.",
+            $uri,
+            $code,
+            (int) round($expires / 60),
         ));
     }
 }

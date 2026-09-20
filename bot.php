@@ -25,6 +25,7 @@ use TwitchBot\Actions\StreamActions;
 use TwitchBot\Bot;
 use TwitchBot\Config;
 use TwitchBot\Store;
+use TwitchBot\Support\Filesystem;
 use TwitchBot\Support\GatewayDiagnostics;
 
 // Walk up for the autoloader so a PHPacker binary, which runs from a different
@@ -77,7 +78,9 @@ $logger->pushProcessor(static function (LogRecord $record) use ($logger): LogRec
     return $record;
 });
 
-$bot = new Bot($config, new Store($config->storePath), ['logger' => $logger]);
+// One filesystem for the process: asynchronous where the platform has
+// ext-uv or ext-eio, durable and blocking where it does not.
+$bot = new Bot($config, new Store($config->storePath, Filesystem::create()), ['logger' => $logger]);
 
 // One catalogue, registered into both chat clients once each is up. Order is
 // only cosmetic — it decides the order of the groups in `help`.
@@ -97,5 +100,18 @@ if (! $config->hasOwner()) {
 }
 
 $logger->info(sprintf('starting with %d actions', $bot->getActions()->count()));
+
+// Ctrl-C has to put a queued write on the disk: once the loop stops, it
+// would never run.
+foreach ([\defined('SIGINT') ? SIGINT : null, \defined('SIGTERM') ? SIGTERM : null] as $signal) {
+    if ($signal !== null && function_exists('pcntl_signal')) {
+        $bot->getLoop()->addSignal($signal, static function () use ($bot, $logger): void {
+            $logger->info('[bot] shutting down');
+            $bot->getStore()->flush();
+            $bot->getTwitch()->close();
+            $bot->close();
+        });
+    }
+}
 
 $bot->run();

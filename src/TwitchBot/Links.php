@@ -93,6 +93,16 @@ final class Links
         return $this->guilds[(string) $guildId] ?? [];
     }
 
+    /**
+     * Every guild that has configured at least one bridge.
+     *
+     * @return list<string>
+     */
+    public function guilds(): array
+    {
+        return array_map(strval(...), array_keys($this->guilds));
+    }
+
     public function isEmpty(): bool
     {
         return $this->toTwitch === [];

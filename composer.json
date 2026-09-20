@@ -12,12 +12,13 @@
     ],
     "require": {
         "php": "^8.4",
-        "team-reflex/discord-php": "dev-master",
         "discord-php/http": "dev-master as 10.1.7",
-        "vzgcoders/twitchphp": "@dev",
         "monolog/monolog": "^3.0",
         "react/event-loop": "^1.5",
-        "react/promise": "^3.2"
+        "react/filesystem": "^0.2@dev",
+        "react/promise": "^3.2",
+        "team-reflex/discord-php": "dev-master",
+        "vzgcoders/twitchphp": "@dev"
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.64",

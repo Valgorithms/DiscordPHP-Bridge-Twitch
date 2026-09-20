@@ -151,6 +151,20 @@ final class TwitchGateway
         $this->drain();
     }
 
+    /**
+     * The channels this connection is currently in, lower-case.
+     *
+     * Re-established on every start from the routing table, so the startup
+     * check compares it against what was restored from disk rather than
+     * assuming the JOINs landed.
+     *
+     * @return list<string>
+     */
+    public function joined(): array
+    {
+        return $this->joined;
+    }
+
     /** How many messages are waiting, for logging and health checks. */
     public function queued(): int
     {
