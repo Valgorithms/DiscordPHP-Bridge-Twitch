@@ -18,6 +18,7 @@ use Discord\Parts\Channel\Channel;
 use Discord\WebSockets\Intents;
 use React\Promise\PromiseInterface;
 
+use function React\Promise\all;
 use function React\Promise\resolve;
 
 use Twitch\Auth\DeviceCodeReauthorizer;
