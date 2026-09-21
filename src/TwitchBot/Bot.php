@@ -57,7 +57,7 @@ use TwitchBot\Support\BridgeCheck;
 class Bot extends MessageCommandClient
 {
     /** Where this lives. Printed into chat by `about`, so it has to resolve. */
-    public const GITHUB = 'https://github.com/discord-php/DiscordPHP-TwitchBot';
+    public const GITHUB = 'https://github.com/Valgorithms/DiscordPHP-TwitchBot';
 
     /** MESSAGE_CONTENT is privileged; without it every relayed message is empty. */
     public const INTENTS = Intents::GUILDS | Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT;
