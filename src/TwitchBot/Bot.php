@@ -16,9 +16,11 @@ namespace TwitchBot;
 use Discord\MessageCommandClient;
 use Discord\Parts\Channel\Channel;
 use Discord\WebSockets\Intents;
-use React\Promise\PromiseInterface;
 
 use function React\Promise\all;
+
+use React\Promise\PromiseInterface;
+
 use function React\Promise\resolve;
 
 use Twitch\Auth\DeviceCodeReauthorizer;
@@ -54,7 +56,8 @@ use TwitchBot\Support\BridgeCheck;
  */
 class Bot extends MessageCommandClient
 {
-    public const GITHUB = 'https://github.com/Valgorithms/DiscordPHP-TwitchBot';
+    /** Where this lives. Printed into chat by `about`, so it has to resolve. */
+    public const GITHUB = 'https://github.com/discord-php/DiscordPHP-TwitchBot';
 
     /** MESSAGE_CONTENT is privileged; without it every relayed message is empty. */
     public const INTENTS = Intents::GUILDS | Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT;
