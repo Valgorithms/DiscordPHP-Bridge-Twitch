@@ -185,12 +185,23 @@ final class RelayActions implements ActionProvider
             $items[] = sprintf('<#%s> ↔ **%s**', $channelId, $login);
         }
 
-        return Format::listing(
+        $listing = Format::listing(
             $context->surface,
             $items,
             'Relays in this server',
             'none yet — `relay link <twitch-channel>` sets one up.',
         );
+
+        // What the startup check made of these, when it has run. Discord only:
+        // Twitch chat has 500 characters to work with and clamping the listing
+        // to make room for a diagnostic line is the wrong trade.
+        $check = $context->bot->getLastCheck();
+
+        if ($check === null || $context->surface !== Surface::Discord || $items === []) {
+            return $listing;
+        }
+
+        return $listing . "\n-# Last bridge check: " . $check;
     }
 
     private function reset(Context $context): string

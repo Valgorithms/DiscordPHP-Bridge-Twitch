@@ -25,6 +25,7 @@ use React\Promise\PromiseInterface;
 use function React\Promise\resolve;
 
 use TwitchBot\Bot;
+use TwitchBot\Support\CommandSync;
 use TwitchBot\Support\Format;
 use TwitchBot\Support\MessageText;
 use TwitchBot\Support\Permissions;
@@ -100,22 +101,73 @@ final class SlashAdapter
      */
     private function define(array $actions, GlobalCommandRepository $repo): void
     {
-        foreach ($actions as $action) {
-            $builder = $this->build($action);
+        $written = 0;
 
-            // Upsert rather than skip-if-present. Discord treats a create with
-            // an existing name as an update, and skipping would mean a changed
-            // option list never reaches Discord — the command would keep the
-            // shape it had the first time it was ever registered.
+        foreach ($actions as $action) {
+            if ($this->publish($action, $repo)) {
+                ++$written;
+            }
+        }
+
+        $this->bot->getLogger()->info(sprintf(
+            '[slash] %d slash command(s): %d unchanged, %d written',
+            count($actions),
+            count($actions) - $written,
+            $written,
+        ));
+    }
+
+    /**
+     * Creates the command, updates it when this build defines something
+     * different, and leaves it alone otherwise.
+     *
+     * Neither extreme works. Skipping whatever is already there means a command
+     * keeps the shape it had the first time it was published — add a
+     * sub-command, restart, and it is routed in code but never offered by
+     * Discord, so the handler cannot be reached. Upserting all of them on every
+     * boot reaches Discord but costs one rate-limited write per command per
+     * restart to republish definitions that did not change.
+     *
+     * {@see CommandSync} tells the two apart, leniently enough that the fields
+     * Discord adds on the way back — `id`, `version`, defaults it fills in, key
+     * order — do not read as a change.
+     *
+     * @return bool Whether a write was issued.
+     */
+    private function publish(Action $action, GlobalCommandRepository $repo): bool
+    {
+        $builder = $this->build($action);
+
+        /** @var array<string, mixed> $payload */
+        $payload = json_decode((string) json_encode($builder), true) ?? [];
+
+        $published = $repo->get('name', $action->name);
+
+        if ($published === null) {
             $repo->save($builder->create($repo), 'TwitchBot command definition')->then(
                 fn () => $this->bot->getLogger()->debug('[slash] defined /' . $action->name),
                 fn (\Throwable $e) => $this->bot->getLogger()->error(
                     '[slash] could not define /' . $action->name . ': ' . $e->getMessage(),
                 ),
             );
+
+            return true;
         }
 
-        $this->bot->getLogger()->info(sprintf('[slash] %d slash command(s) defined', count($actions)));
+        if (! CommandSync::differs($published->jsonSerialize(), $payload)) {
+            return false;
+        }
+
+        $published->fill($payload);
+
+        $repo->save($published, 'definition changed')->then(
+            fn () => $this->bot->getLogger()->info('[slash] updated /' . $action->name),
+            fn (\Throwable $e) => $this->bot->getLogger()->error(
+                '[slash] could not update /' . $action->name . ': ' . $e->getMessage(),
+            ),
+        );
+
+        return true;
     }
 
     private function build(Action $action): CommandBuilder

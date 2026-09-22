@@ -175,8 +175,10 @@ Ten seconds after startup the bot checks what it restored: can it still see
 each Discord channel, does each Twitch channel still exist, and — the one a
 restart is specifically meant to re-establish — is the IRC connection actually
 in it? A JOIN that silently failed leaves a bridge that works in one direction
-only. Findings go to the log and, if `DISCORD_OWNER_ID` is set, to a DM.
-Nothing is pruned automatically: a guild can be briefly unavailable during an
+only. Findings go to the log and, if `DISCORD_OWNER_ID` is set, to a DM, and
+the headline is repeated at the foot of `/relay list` — a bridge whose channel
+or streamer went away while the bot was down reads exactly like a working one
+from a listing alone. Nothing is pruned automatically: a guild can be briefly unavailable during an
 outage, and deleting someone's configuration over a bad ten seconds is worse
 than telling them about it.
 
@@ -223,6 +225,14 @@ you personally can run; `help <command>` explains one.
 All 33 are registered as slash commands, so a server that has not granted the
 Message Content intent still gets every command — it only loses the relay. A
 test asserts that stays true.
+
+Registration only writes what changed. Publishing all 33 on every boot is 33
+rate-limited writes to say nothing, and publishing only the ones Discord has
+never seen would freeze each command in the shape it had the first time — add a
+sub-command and it is routed in code but never offered. So each definition is
+compared against what Discord already has, leniently enough that the fields it
+adds on the way back (`id`, `version`, defaults, key order) don't read as a
+change, and only a real difference is sent. The startup line says how many.
 
 Permissions map onto one ladder — everyone, moderator, broadcaster, owner —
 because two systems' worth of permissions would have to be explained twice.

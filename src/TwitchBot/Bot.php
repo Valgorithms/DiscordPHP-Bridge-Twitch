@@ -156,6 +156,9 @@ class Bot extends MessageCommandClient
 
     private bool $started = false;
 
+    /** The last bridge check's headline; see {@see verifyBridges()}. */
+    private ?string $lastCheck = null;
+
     /** @var array<string, array<string, mixed>|null> Twitch login => cached user row, negatives included. */
     private array $twitchUsers = [];
 
@@ -460,6 +463,8 @@ class Bot extends MessageCommandClient
                 count($rows) === 1 ? '' : 's',
             );
 
+            $this->rememberCheck($headline);
+
             if ($summary['problems'] === []) {
                 $this->logger->info('[bot] ' . $headline);
 
@@ -477,6 +482,24 @@ class Bot extends MessageCommandClient
                 . "\n-# Nothing has been removed — use `relay list` to fix or unlink these.",
             );
         });
+    }
+
+    /** What the last bridge check found, for `relay list`. */
+    public function rememberCheck(string $summary): void
+    {
+        $this->lastCheck = $summary;
+    }
+
+    /**
+     * The last bridge check's headline, or `null` before it has run.
+     *
+     * Worth showing next to the bridges themselves: one whose Discord channel
+     * or Twitch channel went away while the bot was down reads exactly like a
+     * working one from a listing alone.
+     */
+    public function getLastCheck(): ?string
+    {
+        return $this->lastCheck;
     }
 
     /**
