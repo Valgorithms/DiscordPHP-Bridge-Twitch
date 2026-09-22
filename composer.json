@@ -1,8 +1,19 @@
 {
-    "name": "vzgcoders/discordphp-twitchbot",
-    "description": "A Discord and Twitch bot on one event loop: a configurable two-way chat relay, plus the Twitch Helix API driven from either chat.",
-    "keywords": ["discord", "twitch", "helix", "chat", "relay", "bridge", "bot", "reactphp", "async"],
-    "type": "project",
+    "name": "vzgcoders/discordphp-bridge-twitch",
+    "description": "The Twitch connector for DiscordPHP-Bridge: a two-way chat bridge, the whole Helix API, and one command catalogue shared with every other network the bot is on.",
+    "keywords": [
+        "discord",
+        "twitch",
+        "helix",
+        "chat",
+        "relay",
+        "bridge",
+        "bot",
+        "reactphp",
+        "async",
+        "connector"
+    ],
+    "type": "library",
     "license": "MIT",
     "authors": [
         {
@@ -12,43 +23,51 @@
     ],
     "require": {
         "php": "^8.4",
-        "discord-php/http": "dev-master as 10.1.7",
-        "monolog/monolog": "^3.0",
+        "discord-php/bridge": "@dev",
         "react/event-loop": "^1.5",
-        "react/filesystem": "^0.2@dev",
         "react/promise": "^3.2",
-        "team-reflex/discord-php": "dev-master",
         "vzgcoders/twitchphp": "@dev"
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.64",
-        "phpunit/phpunit": "^11.0 || ^10.5",
-        "phpacker/phpacker": "^0.6.4"
+        "phpunit/phpunit": "^11.0 || ^10.5"
     },
     "repositories": [
-        { "type": "path", "url": "../DiscordPHP", "options": { "symlink": true } },
-        { "type": "path", "url": "../DiscordPHP-Http", "options": { "symlink": true } },
-        { "type": "path", "url": "../TwitchPHP", "options": { "symlink": true } },
-        { "type": "path", "url": "../TwitchPHP-Http", "options": { "symlink": true } }
+        {
+            "type": "path",
+            "url": "../DiscordPHP-Bridge",
+            "options": {
+                "symlink": true
+            }
+        },
+        {
+            "type": "path",
+            "url": "../TwitchPHP",
+            "options": {
+                "symlink": true
+            }
+        },
+        {
+            "type": "path",
+            "url": "../TwitchPHP-Http",
+            "options": {
+                "symlink": true
+            }
+        }
     ],
     "autoload": {
         "psr-4": {
-            "TwitchBot\\": "src/TwitchBot/"
+            "Bridge\\Twitch\\": "src/Bridge/Twitch/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "TwitchBot\\Tests\\": "tests/"
+            "Bridge\\Twitch\\Tests\\": "tests/"
         }
     },
     "scripts": {
         "cs": "php-cs-fixer fix",
-        "test": "phpunit",
-        "phpacker": "@phpacker:bot",
-        "phpacker:bot": "phpacker build --src=bot.php --dest=bin/build/bot"
-    },
-    "scripts-descriptions": {
-        "phpacker:bot": "Build a standalone binary for bot.php into bin/build/bot."
+        "test": "phpunit"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,

@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace TwitchBot\Tests;
+namespace Bridge\Twitch\Tests;
 
+use Bridge\Command\ActionError;
+use Bridge\Twitch\Api\RepositoryDispatcher;
 use PHPUnit\Framework\TestCase;
-use TwitchBot\Api\RepositoryDispatcher;
-use TwitchBot\Command\ActionError;
 
 /**
  * The reflective dispatcher that gives `api` its reach.

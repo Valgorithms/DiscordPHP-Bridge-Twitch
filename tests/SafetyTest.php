@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace TwitchBot\Tests;
+namespace Bridge\Twitch\Tests;
 
+use Bridge\Command\Access;
+use Bridge\Command\Context;
+use Bridge\Twitch\Api\Sensitive;
+use Bridge\Twitch\TwitchAdapter;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use TwitchBot\Api\Sensitive;
-use TwitchBot\Command\Access;
-use TwitchBot\Command\Context;
-use TwitchBot\Command\TwitchAdapter;
 
 /**
  * The checks that stop the bot doing damage: IRC line safety, credential
@@ -189,35 +189,35 @@ final class SafetyTest extends TestCase
 
     public function testLadderIsOrdered(): void
     {
-        self::assertTrue(Access::Owner->satisfies(Access::Broadcaster));
-        self::assertTrue(Access::Owner->satisfies(Access::Everyone));
-        self::assertTrue(Access::Broadcaster->satisfies(Access::Moderator));
+        self::assertTrue(Access::Operator->satisfies(Access::Administrator));
+        self::assertTrue(Access::Operator->satisfies(Access::Everyone));
+        self::assertTrue(Access::Administrator->satisfies(Access::Moderator));
         self::assertTrue(Access::Moderator->satisfies(Access::Everyone));
 
-        self::assertFalse(Access::Moderator->satisfies(Access::Broadcaster));
-        self::assertFalse(Access::Broadcaster->satisfies(Access::Owner));
+        self::assertFalse(Access::Moderator->satisfies(Access::Administrator));
+        self::assertFalse(Access::Administrator->satisfies(Access::Operator));
         self::assertFalse(Access::Everyone->satisfies(Access::Moderator));
     }
 
     public function testTwitchBadgesMapOntoTheLadder(): void
     {
-        self::assertSame(Access::Owner, Context::twitchAccess(false, false, true));
-        self::assertSame(Access::Broadcaster, Context::twitchAccess(true, false, false));
-        self::assertSame(Access::Moderator, Context::twitchAccess(false, true, false));
-        self::assertSame(Access::Everyone, Context::twitchAccess(false, false, false));
+        self::assertSame(Access::Operator, Context::ladder(true, false, false));
+        self::assertSame(Access::Administrator, Context::ladder(false, true, false));
+        self::assertSame(Access::Moderator, Context::ladder(false, false, true));
+        self::assertSame(Access::Everyone, Context::ladder(false, false, false));
     }
 
     /** The operator outranks the broadcaster, on both platforms. */
     public function testOwnerOutranksEverything(): void
     {
-        self::assertSame(Access::Owner, Context::twitchAccess(true, true, true));
-        self::assertSame(Access::Owner, Context::discordAccess(true, true, true, true));
+        self::assertSame(Access::Operator, Context::ladder(true, true, true));
+        self::assertSame(Access::Operator, Context::discordAccess(true, true, true, true));
     }
 
     public function testDiscordRolesMapOntoTheLadder(): void
     {
-        self::assertSame(Access::Broadcaster, Context::discordAccess(true, false, false, false), 'guild owner');
-        self::assertSame(Access::Broadcaster, Context::discordAccess(false, true, false, false), 'administrator');
+        self::assertSame(Access::Administrator, Context::discordAccess(true, false, false, false), 'guild owner');
+        self::assertSame(Access::Administrator, Context::discordAccess(false, true, false, false), 'administrator');
         self::assertSame(Access::Moderator, Context::discordAccess(false, false, true, false));
         self::assertSame(Access::Everyone, Context::discordAccess(false, false, false, false));
     }

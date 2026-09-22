@@ -7,7 +7,7 @@
          failOnWarning="true"
          failOnDeprecation="true">
     <testsuites>
-        <testsuite name="TwitchBot">
+        <testsuite name="Bridge-Twitch">
             <directory>tests</directory>
         </testsuite>
     </testsuites>

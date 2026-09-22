@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace TwitchBot\Tests;
+namespace Bridge\Twitch\Tests;
 
+use Bridge\Twitch\TwitchConnector;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use TwitchBot\Bot;
 
 /**
  * The scopes requested at authorization time.
@@ -53,7 +53,7 @@ final class ScopesTest extends TestCase
     {
         self::assertContains(
             $scope,
-            Bot::TWITCH_SCOPES,
+            TwitchConnector::SCOPES,
             "without {$scope}, these fail at runtime with a missing-scope 401: {$commands}",
         );
     }
@@ -75,7 +75,7 @@ final class ScopesTest extends TestCase
 
         self::assertSame(
             [],
-            array_values(array_diff(Bot::TWITCH_SCOPES, $justified)),
+            array_values(array_diff(TwitchConnector::SCOPES, $justified)),
             'these scopes are requested but no command uses them',
         );
     }
@@ -83,12 +83,12 @@ final class ScopesTest extends TestCase
     public function testScopesAreUniqueAndWellFormed(): void
     {
         self::assertSame(
-            Bot::TWITCH_SCOPES,
-            array_values(array_unique(Bot::TWITCH_SCOPES)),
+            TwitchConnector::SCOPES,
+            array_values(array_unique(TwitchConnector::SCOPES)),
             'duplicate scopes',
         );
 
-        foreach (Bot::TWITCH_SCOPES as $scope) {
+        foreach (TwitchConnector::SCOPES as $scope) {
             self::assertMatchesRegularExpression('/^[a-z]+(:[a-z_]+)+$/', $scope, "malformed scope: {$scope}");
         }
     }
@@ -99,7 +99,7 @@ final class ScopesTest extends TestCase
      */
     public function testChatScopesArePresentForTheRelay(): void
     {
-        self::assertContains('chat:read', Bot::TWITCH_SCOPES);
-        self::assertContains('chat:edit', Bot::TWITCH_SCOPES);
+        self::assertContains('chat:read', TwitchConnector::SCOPES);
+        self::assertContains('chat:edit', TwitchConnector::SCOPES);
     }
 }
