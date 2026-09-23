@@ -483,6 +483,7 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars
 
         $this->bot->getLogger()->warning(sprintf(
             '[twitch] the token belongs to %1$s, but TWITCH_NICK is %2$s — chat will be sent as %1$s. '
+            . 'TWITCH_NICK must be the login of a Twitch account, not the name of the application in the developer console. '
             . 'If the bot should speak as %2$s, re-authorize logged in to Twitch as %2$s; if %1$s is right, set TWITCH_NICK=%1$s.',
             $login,
             $nick,
