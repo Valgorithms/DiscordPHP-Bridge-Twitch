@@ -248,6 +248,7 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars
             ));
 
             $this->warnIfCannotRefresh();
+            $this->warnIfTokenIsSomeoneElse();
 
             return true;
         });
@@ -461,6 +462,31 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars
             . 'When it expires (~4h) the bot will ask for a device code instead. '
             . 'Set a client secret for unattended operation.',
         );
+    }
+
+    /**
+     * Says so when the token belongs to a different account than TWITCH_NICK.
+     *
+     * Twitch sends chat as whoever the token belongs to, whatever nick the
+     * connection claims — so a token approved while logged in as the streamer
+     * makes the relay speak as the streamer. Nothing fails, which is what makes
+     * it worth saying: the first sign is a relayed message under the wrong name.
+     */
+    private function warnIfTokenIsSomeoneElse(): void
+    {
+        $login = strtolower((string) $this->twitch->getLogin());
+        $nick = strtolower($this->config->nick);
+
+        if ($login === '' || $login === $nick) {
+            return;
+        }
+
+        $this->bot->getLogger()->warning(sprintf(
+            '[twitch] the token belongs to %1$s, but TWITCH_NICK is %2$s — chat will be sent as %1$s. '
+            . 'If the bot should speak as %2$s, re-authorize logged in to Twitch as %2$s; if %1$s is right, set TWITCH_NICK=%1$s.',
+            $login,
+            $nick,
+        ));
     }
 
     /**
