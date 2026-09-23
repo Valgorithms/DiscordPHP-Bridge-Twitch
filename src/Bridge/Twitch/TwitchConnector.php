@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace Bridge\Twitch;
 
 use Bridge\Bot;
+use Bridge\Capability\Avatars;
 use Bridge\Capability\ProvidesActions;
 use Bridge\Command\Surface;
 use Bridge\Connector;
@@ -27,15 +28,13 @@ use Bridge\Twitch\Actions\ModerationActions;
 use Bridge\Twitch\Actions\StreamActions;
 use Bridge\Twitch\Api\RepositoryDispatcher;
 use React\Promise\PromiseInterface;
-
-use function React\Promise\resolve;
-
 use Twitch\Auth\DeviceCodeReauthorizer;
 use Twitch\Auth\EnvFileTokenStore;
-use Twitch\Chat\CommandClient as TwitchCommandClient;
 use Twitch\Http\OAuth;
 use Twitch\Parts\ChatMessage;
 use Twitch\Twitch;
+
+use function React\Promise\resolve;
 
 /**
  * Twitch, as far as the bridge is concerned.
@@ -50,7 +49,7 @@ use Twitch\Twitch;
  *
  * @author Valithor Obsidion <valithor@valgorithms.com>
  */
-final class TwitchConnector implements Connector, ProvidesActions
+final class TwitchConnector implements Connector, ProvidesActions, Avatars
 {
     /** The name this connector is addressed by, in the store and in chat. */
     public const NAME = 'twitch';
@@ -76,7 +75,7 @@ final class TwitchConnector implements Connector, ProvidesActions
      *
      * {@see ApiActions} can reach endpoints beyond this list. That is
      * deliberate and not a reason to widen it: an uncovered call fails with a
-     * {@see \Twitch\Exceptions\MissingScopeException} naming the scope it
+     * {@see \Twitch\Http\Exceptions\MissingScopeException} naming the scope it
      * wanted, which is a better outcome than holding every permission on the
      * chance somebody types one.
      *
@@ -135,13 +134,19 @@ final class TwitchConnector implements Connector, ProvidesActions
 
     private ?TwitchGateway $gateway = null;
 
-    private ?TwitchCommandClient $commands = null;
+    /** How many user rows to keep. Every new chatter is one, for their avatar. */
+    private const USER_CACHE = 1000;
+
+    private ?TwitchAdapter $adapter = null;
 
     /** @var list<callable(Incoming): void> */
     private array $handlers = [];
 
-    /** @var array<string, array<string, mixed>|null> login => cached user row, negatives included. */
+    /** @var array<string, array{id: string, login: string, display_name: string, description: string, avatar: string}|null> login => cached user row, negatives included. */
     private array $users = [];
+
+    /** @var array<string, PromiseInterface<array{id: string, login: string, display_name: string, description: string, avatar: string}|null>> Lookups in flight, so a burst from one chatter is one request. */
+    private array $pending = [];
 
     public function __construct(private readonly TwitchConfig $config)
     {
@@ -167,7 +172,7 @@ final class TwitchConnector implements Connector, ProvidesActions
      */
     public function surface(): Surface
     {
-        return new Surface(self::NAME, 'Twitch', TwitchText::LIMIT, markdown: false, lines: false);
+        return new Surface(self::NAME, 'Twitch', TwitchText::LIMIT, markdown: false, lines: false, prefix: $this->config->prefix);
     }
 
     public function getTwitch(): Twitch
@@ -213,16 +218,16 @@ final class TwitchConnector implements Connector, ProvidesActions
     }
 
     /**
-     * Connects, then registers the catalogue into Twitch chat.
+     * Connects, and starts answering commands in chat.
      *
-     * `bootstrap()` resolves once the token is usable and IRC is up. Anything
-     * that needs a live client — the command registration especially — happens
-     * inside it, and a rejection propagates so the core can report that this
-     * connector is down without taking the others with it.
+     * `bootstrap()` resolves once the token is usable and IRC is up; anything
+     * that needs a live client happens inside it. A rejection is handed back
+     * to the core, which reports this connector as down without taking the
+     * others with it.
      */
-    public function start(): void
+    public function start(): PromiseInterface
     {
-        $this->twitch->bootstrap()->then(function (): void {
+        return $this->twitch->bootstrap()->then(function (): bool {
             $this->gateway = new TwitchGateway(
                 $this->twitch,
                 $this->bot->getLoop(),
@@ -230,21 +235,21 @@ final class TwitchConnector implements Connector, ProvidesActions
                 $this->config->nick,
             );
 
+            $this->adapter = new TwitchAdapter($this, $this->bot);
+
             $this->gateway->listen();
             $this->gateway->onChat(fn (ChatMessage $message) => $this->dispatch($message));
 
-            $this->commands = new TwitchCommandClient($this->twitch, ['help' => false]);
-            (new TwitchAdapter($this, $this->bot, $this->commands))->register();
-
             $this->bot->getLogger()->info(sprintf(
-                '[twitch] ready as %s; %d bridge(s) configured',
+                '[twitch] ready as %s; %d bridge(s) configured, commands start with %s',
                 (string) $this->twitch->getLogin(),
                 $this->bot->getStore()->links(self::NAME)->count(),
+                $this->config->prefix,
             ));
 
             $this->warnIfCannotRefresh();
-        })->then(null, function (\Throwable $e): never {
-            throw $e;
+
+            return true;
         });
     }
 
@@ -276,21 +281,99 @@ final class TwitchConnector implements Connector, ProvidesActions
     }
 
     /**
-     * Looks a channel up by login, cached — including negative results, so a
-     * typo'd channel is not re-queried on every relayed message.
+     * Looks a channel up by login.
+     *
+     * The room is keyed by login — what IRC joins and what the store has held
+     * since the single-platform bot — and carries the Helix user id as its
+     * {@see Room::apiId()}, which is what every Helix call wants as
+     * `broadcaster_id`.
      *
      * @return PromiseInterface<?Room>
      */
     public function resolve(string $target): PromiseInterface
     {
-        return $this->user($target)->then(static fn (?array $user): ?Room => $user === null ? null : new Room(
-            id: $user['id'],
+        return $this->lookupUser($target)->then(static fn (?array $user): ?Room => $user === null ? null : new Room(
+            id: $user['login'],
             label: $user['display_name'] !== '' ? $user['display_name'] : $user['login'],
             url: 'https://twitch.tv/' . $user['login'],
             kind: 'channel',
             description: $user['description'] === '' ? null : $user['description'],
             avatarUrl: $user['avatar'] === '' ? null : $user['avatar'],
+            platformId: $user['id'],
         ));
+    }
+
+    /**
+     * One Helix user row by login, cached — including a user that does not
+     * exist, so a typo is not re-queried on every relayed message.
+     *
+     * Resolves `null` only when Twitch says there is no such user. A lookup
+     * that *failed* rejects: it is not proof of absence, and a moderation
+     * command must not treat it as one.
+     *
+     * @return PromiseInterface<array{id: string, login: string, display_name: string, description: string, avatar: string}|null>
+     */
+    public function lookupUser(string $login): PromiseInterface
+    {
+        $login = strtolower($login);
+
+        if (array_key_exists($login, $this->users)) {
+            return resolve($this->users[$login]);
+        }
+
+        if (isset($this->pending[$login])) {
+            return $this->pending[$login];
+        }
+
+        $lookup = $this->twitch->users->fetchByLogin($login)->then(function ($user) use ($login): ?array {
+            $row = $user === null ? null : [
+                'id' => (string) $user->id,
+                'login' => strtolower((string) $user->login),
+                'display_name' => (string) $user->display_name,
+                'description' => (string) ($user->description ?? ''),
+                'avatar' => (string) ($user->profile_image_url ?? ''),
+            ];
+
+            if (count($this->users) >= self::USER_CACHE) {
+                // Oldest first: arrays keep insertion order.
+                unset($this->users[array_key_first($this->users)]);
+            }
+
+            return $this->users[$login] = $row;
+        });
+
+        // Stored before the cleanup is attached, so a lookup that settles at
+        // once is not left behind — a rejected one would fail every later
+        // lookup of the same name.
+        $this->pending[$login] = $lookup;
+        $forget = function () use ($login, $lookup): void {
+            if (($this->pending[$login] ?? null) === $lookup) {
+                unset($this->pending[$login]);
+            }
+        };
+        $lookup->then($forget, $forget);
+
+        return $lookup;
+    }
+
+    /**
+     * A chatter's profile picture, for the Discord copy of what they said.
+     *
+     * Helix's `profile_image_url` is a public CDN link with nothing secret in
+     * it. Never rejects: a missing avatar is not worth losing the message over.
+     */
+    public function avatarFor(Incoming $message): PromiseInterface
+    {
+        $login = $message->handle ?? '';
+
+        if ($login === '') {
+            return resolve(null);
+        }
+
+        return $this->lookupUser($login)->then(
+            static fn (?array $user): ?string => $user === null || $user['avatar'] === '' ? null : $user['avatar'],
+            static fn (): ?string => null,
+        );
     }
 
     // ── Messages ───────────────────────────────────────────────────────
@@ -342,53 +425,27 @@ final class TwitchConnector implements Connector, ProvidesActions
      */
     private function dispatch(ChatMessage $message): void
     {
+        $own = strcasecmp((string) $message->user, $this->config->nick) === 0;
+
+        // Commands are answered here and dropped by the relay, which asks the
+        // same dispatcher whether a line is one.
+        if (! $own) {
+            $this->adapter?->handle($message);
+        }
+
         $incoming = new Incoming(
-            target: (string) $message->channel,
+            target: strtolower((string) $message->channel),
             author: (string) ($message->display_name ?: $message->user),
             authorId: (string) ($message->user_id ?? '') ?: null,
             text: (string) $message->content,
             id: (string) ($message->id ?? '') ?: null,
-            own: strcasecmp((string) $message->user, $this->config->nick) === 0,
+            own: $own,
+            handle: strtolower((string) $message->user),
         );
 
         foreach ($this->handlers as $handler) {
             $handler($incoming);
         }
-    }
-
-    /**
-     * One Helix user row, cached by login.
-     *
-     * @return PromiseInterface<array<string, mixed>|null>
-     */
-    private function user(string $login): PromiseInterface
-    {
-        $login = strtolower($login);
-
-        if (array_key_exists($login, $this->users)) {
-            return resolve($this->users[$login]);
-        }
-
-        return $this->twitch->users->fetchByLogin($login)->then(
-            function ($user) use ($login): ?array {
-                $row = $user === null ? null : [
-                    'id' => (string) $user->id,
-                    'login' => (string) $user->login,
-                    'display_name' => (string) $user->display_name,
-                    'description' => (string) ($user->description ?? ''),
-                    'avatar' => (string) ($user->profile_image_url ?? ''),
-                ];
-
-                return $this->users[$login] = $row;
-            },
-            function (\Throwable $e) use ($login): ?array {
-                // A failed lookup is not proof the channel is absent, so it is
-                // not cached as one — but it must not break delivery either.
-                $this->bot->getLogger()->debug('[twitch] user lookup failed for ' . $login . ': ' . $e->getMessage());
-
-                return null;
-            },
-        );
     }
 
     private function warnIfCannotRefresh(): void

@@ -23,7 +23,7 @@ use Bridge\Command\Slash;
 use Bridge\Command\SlashOption;
 use Bridge\Support\Format;
 use React\Promise\PromiseInterface;
-use Twitch\Exceptions\MissingScopeException;
+use Twitch\Http\Exceptions\MissingScopeException;
 
 /**
  * Reading and editing the channel: title, category, tags, and the rest of what
@@ -54,7 +54,7 @@ final class ChannelActions implements ProvidesActions
             new Action(
                 'twitch',
                 'title',
-                $this->title(...),
+                $this->explained($this->title(...)),
                 'Show the stream title, or set it',
                 '[new title]',
                 access: Access::Everyone,
@@ -65,7 +65,7 @@ final class ChannelActions implements ProvidesActions
             new Action(
                 'twitch',
                 'game',
-                $this->game(...),
+                $this->explained($this->game(...)),
                 'Show the category, or set it',
                 '[category]',
                 access: Access::Everyone,
@@ -77,7 +77,7 @@ final class ChannelActions implements ProvidesActions
             new Action(
                 'twitch',
                 'tags',
-                $this->tags(...),
+                $this->explained($this->tags(...)),
                 'Show the channel tags, or set them',
                 '[tag, tag, ...]',
                 access: Access::Everyone,
@@ -90,7 +90,7 @@ final class ChannelActions implements ProvidesActions
                 // Not `channel`: it sits in the `channel` group, and
                 // `/twitch channel channel` says nothing the group has not.
                 'info',
-                $this->channel(...),
+                $this->explained($this->channel(...)),
                 'Everything the channel is currently set to',
                 access: Access::Everyone,
                 aliases: ['channel'],
@@ -269,11 +269,9 @@ final class ChannelActions implements ProvidesActions
     {
         $login = $context->target ?? 'that channel';
 
+        // Also a 401, but a different fix from the one below.
         if ($e instanceof MissingScopeException) {
-            return new ActionError(sprintf(
-                'the bot token is missing the %s scope. Re-authorize it with that scope included.',
-                implode(' or ', $e->scopes) !== '' ? implode(' or ', $e->scopes) : 'required',
-            ));
+            return self::explainTwitch($e);
         }
 
         $message = $e->getMessage();

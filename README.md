@@ -66,8 +66,8 @@ is bridged to. `!twitch` on its own lists what you can run.
 | `/twitch search <name>` | find a category |
 | `/twitch api …` | anything else (owner) |
 
-A chat drops the group and keeps the qualifier — `!twitch title`, not
-`!twitch channel title` and never a bare `!title`. That is deliberate: a name is
+A chat can drop the group but never the qualifier — `!twitch title` (the long
+`!twitch channel title` works too), never a bare `!title`. That is deliberate: a name is
 only free because no connector has claimed it yet, and since every connector's
 commands are offered in every chat, an unqualified `!title` is one installed
 package away from meaning two things.
@@ -128,10 +128,13 @@ first list is a judgement about today's API and will age; the second is what
 catches the endpoint nobody thought about.
 
 **Rate limits.** Twitch mutes the *account* for 30 minutes if you exceed 20
-messages per 30 seconds — not merely the message. Relayed chat and command
-replies both go through one per-channel token bucket sized at 18, because two
-senders that each stay under the limit will still breach it together. The
-Discord side is paced by the core, which has its own reasons.
+messages per 30 seconds — not merely the message — and the count is across every
+channel the account speaks in. Relayed chat and command replies all go through
+one account-wide token bucket sized at 18, because two senders that each stay
+under the limit will still breach it together, and so will two channels. At most
+100 messages wait; past that the oldest are dropped, since a busy Discord channel
+outpaces what Twitch will take. The Discord side is paced by the core, which has
+its own reasons.
 
 **Editing a channel** uses the bot's own token, so the bot account must be the
 broadcaster or a channel editor. When it isn't, Twitch answers 401 — which is

@@ -40,7 +40,7 @@ final class StreamActions implements ProvidesActions
             new Action(
                 'twitch',
                 'uptime',
-                $this->uptime(...),
+                $this->explained($this->uptime(...)),
                 'How long the stream has been live',
                 cooldown: 10,
                 group: 'stream',
@@ -49,7 +49,7 @@ final class StreamActions implements ProvidesActions
             new Action(
                 'twitch',
                 'viewers',
-                $this->viewers(...),
+                $this->explained($this->viewers(...)),
                 'Current viewer count',
                 cooldown: 10,
                 group: 'stream',
@@ -60,7 +60,7 @@ final class StreamActions implements ProvidesActions
                 // Not `stream`: it sits in the `stream` group, and
                 // `/twitch stream stream` says nothing the group has not.
                 'live',
-                $this->stream(...),
+                $this->explained($this->stream(...)),
                 'Everything about the current stream',
                 aliases: ['stream'],
                 cooldown: 10,
@@ -70,7 +70,7 @@ final class StreamActions implements ProvidesActions
             new Action(
                 'twitch',
                 'followers',
-                $this->followers(...),
+                $this->explained($this->followers(...)),
                 'How many followers the channel has',
                 cooldown: 30,
                 group: 'stream',
@@ -79,7 +79,7 @@ final class StreamActions implements ProvidesActions
             new Action(
                 'twitch',
                 'clip',
-                $this->clip(...),
+                $this->explained($this->clip(...)),
                 'Clip the last 30 seconds',
                 access: Access::Moderator,
                 cooldown: 30,
@@ -89,7 +89,7 @@ final class StreamActions implements ProvidesActions
             new Action(
                 'twitch',
                 'marker',
-                $this->marker(...),
+                $this->explained($this->marker(...)),
                 'Drop a marker in the VOD',
                 '[note]',
                 access: Access::Moderator,
@@ -100,7 +100,7 @@ final class StreamActions implements ProvidesActions
             new Action(
                 'twitch',
                 'search',
-                $this->search(...),
+                $this->explained($this->search(...)),
                 'Find a Twitch category by name',
                 '<name>',
                 cooldown: 10,

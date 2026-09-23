@@ -14,8 +14,12 @@ declare(strict_types=1);
 namespace Bridge\Twitch\Actions;
 
 use Bridge\Command\ActionError;
+use Bridge\Command\Arguments;
 use Bridge\Command\Context;
 use Bridge\Twitch\TwitchConnector;
+use React\Promise\PromiseInterface;
+use Twitch\Http\Exceptions\HttpException;
+use Twitch\Http\Exceptions\MissingScopeException;
 
 /**
  * Reaches the Twitch client from inside an action.
@@ -44,5 +48,60 @@ trait UsesTwitch
         }
 
         return $connector;
+    }
+
+    /**
+     * Wraps a handler so a Helix refusal reaches whoever typed the command as
+     * a sentence, rather than as "that did not work".
+     *
+     * @param  callable(Context, Arguments): mixed $handler
+     * @return \Closure(Context, Arguments): mixed
+     */
+    private function explained(callable $handler): \Closure
+    {
+        return static function (Context $context, Arguments $arguments) use ($handler): mixed {
+            try {
+                $result = $handler($context, $arguments);
+            } catch (\Throwable $e) {
+                throw self::explainTwitch($e);
+            }
+
+            return $result instanceof PromiseInterface
+                ? $result->then(null, static fn (\Throwable $e) => throw self::explainTwitch($e))
+                : $result;
+        };
+    }
+
+    /**
+     * What Twitch's refusal means to the person who asked.
+     *
+     * A 4xx from Helix carries a message written for people — "The user
+     * specified in the user_id field is already banned." — and nothing secret,
+     * so it is passed on. Anything else (a 5xx, a dropped connection) is left
+     * for the adapter to log and summarise.
+     */
+    private static function explainTwitch(\Throwable $e): \Throwable
+    {
+        if ($e instanceof ActionError) {
+            return $e;
+        }
+
+        if ($e instanceof MissingScopeException) {
+            return new ActionError(sprintf(
+                'the bot token is missing the %s scope. Re-authorize it with that scope included.',
+                $e->scopes !== [] ? implode(' or ', $e->scopes) : 'required',
+            ), 0, $e);
+        }
+
+        if ($e instanceof HttpException && $e->status >= 400 && $e->status < 500) {
+            $said = trim((string) preg_replace('/^HTTP \d+:\s*/', '', $e->getMessage()));
+
+            return new ActionError(sprintf(
+                'Twitch refused that%s',
+                $said === '' ? '.' : ': ' . rtrim($said, '.') . '.',
+            ), 0, $e);
+        }
+
+        return $e;
     }
 }

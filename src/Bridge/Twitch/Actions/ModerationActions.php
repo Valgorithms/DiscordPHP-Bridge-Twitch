@@ -48,26 +48,26 @@ final class ModerationActions implements ProvidesActions
     public function actions(): array
     {
         return [
-            new Action('twitch', 'ban', $this->ban(...), 'Ban someone', '<user> [reason]', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true), new SlashOption('reason', 'Shown in the moderation log.')])),
-            new Action('twitch', 'unban', $this->unban(...), 'Lift a ban', '<user>', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
-            new Action('twitch', 'timeout', $this->timeout(...), 'Time someone out', '<user> [seconds] [reason]', access: Access::Moderator, aliases: ['to'], group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true), new SlashOption('seconds', 'How long, in seconds. Defaults to 600.', SlashOption::INTEGER), new SlashOption('reason', 'Shown in the moderation log.')])),
-            new Action('twitch', 'vip', $this->vip(...), 'Give VIP', '<user>', access: Access::Administrator, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
-            new Action('twitch', 'unvip', $this->unvip(...), 'Take VIP away', '<user>', access: Access::Administrator, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
-            new Action('twitch', 'mod', $this->mod(...), 'Give moderator', '<user>', access: Access::Administrator, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
-            new Action('twitch', 'unmod', $this->unmod(...), 'Take moderator away', '<user>', access: Access::Administrator, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
-            new Action('twitch', 'clear', $this->clear(...), 'Clear the chat', access: Access::Moderator, group: 'moderation', slash: new Slash()),
-            new Action('twitch', 'announce', $this->announce(...), 'Post a highlighted announcement', '<message>', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('message', 'The announcement text.', SlashOption::STRING, true)])),
-            new Action('twitch', 'shoutout', $this->shoutout(...), 'Shout out another channel', '<channel>', access: Access::Moderator, aliases: ['so'], cooldown: 120, group: 'moderation', slash: new Slash([new SlashOption('channel', 'The Twitch channel to shout out.', SlashOption::STRING, true)])),
-            new Action('twitch', 'slow', $this->slow(...), 'Slow mode on (seconds) or off', '[seconds|off]', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('seconds', 'Seconds between messages, or "off".')])),
-            new Action('twitch', 'subonly', $this->subonly(...), 'Subscriber-only chat on or off', '[on|off]', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('state', '"on" or "off". Defaults to on.')])),
-            new Action('twitch', 'emoteonly', $this->emoteonly(...), 'Emote-only chat on or off', '[on|off]', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('state', '"on" or "off". Defaults to on.')])),
+            new Action('twitch', 'ban', $this->explained($this->ban(...)), 'Ban someone', '<user> [reason]', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true), new SlashOption('reason', 'Shown in the moderation log.')])),
+            new Action('twitch', 'unban', $this->explained($this->unban(...)), 'Lift a ban', '<user>', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
+            new Action('twitch', 'timeout', $this->explained($this->timeout(...)), 'Time someone out', '<user> [seconds] [reason]', access: Access::Moderator, aliases: ['to'], group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true), new SlashOption('seconds', 'How long, in seconds. Defaults to 600.', SlashOption::INTEGER), new SlashOption('reason', 'Shown in the moderation log.')])),
+            new Action('twitch', 'vip', $this->explained($this->vip(...)), 'Give VIP', '<user>', access: Access::Administrator, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
+            new Action('twitch', 'unvip', $this->explained($this->unvip(...)), 'Take VIP away', '<user>', access: Access::Administrator, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
+            new Action('twitch', 'mod', $this->explained($this->mod(...)), 'Give moderator', '<user>', access: Access::Administrator, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
+            new Action('twitch', 'unmod', $this->explained($this->unmod(...)), 'Take moderator away', '<user>', access: Access::Administrator, group: 'moderation', slash: new Slash([new SlashOption('user', 'The Twitch username.', SlashOption::STRING, true)])),
+            new Action('twitch', 'clear', $this->explained($this->clear(...)), 'Clear the chat', access: Access::Moderator, group: 'moderation', slash: new Slash()),
+            new Action('twitch', 'announce', $this->explained($this->announce(...)), 'Post a highlighted announcement', '<message>', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('message', 'The announcement text.', SlashOption::STRING, true)])),
+            new Action('twitch', 'shoutout', $this->explained($this->shoutout(...)), 'Shout out another channel', '<channel>', access: Access::Moderator, aliases: ['so'], cooldown: 120, group: 'moderation', slash: new Slash([new SlashOption('channel', 'The Twitch channel to shout out.', SlashOption::STRING, true)])),
+            new Action('twitch', 'slow', $this->explained($this->slow(...)), 'Slow mode on (seconds) or off', '[seconds|off]', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('seconds', 'Seconds between messages, or "off".')])),
+            new Action('twitch', 'subonly', $this->explained($this->subonly(...)), 'Subscriber-only chat on or off', '[on|off]', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('state', '"on" or "off". Defaults to on.')])),
+            new Action('twitch', 'emoteonly', $this->explained($this->emoteonly(...)), 'Emote-only chat on or off', '[on|off]', access: Access::Moderator, group: 'moderation', slash: new Slash([new SlashOption('state', '"on" or "off". Defaults to on.')])),
             // No `followers` alias: that name belongs to the read-only
             // follower count in StreamActions, and the registry rejects the
             // clash rather than letting one silently shadow the other.
-            new Action('twitch', 'followersonly', $this->followersonly(...), 'Followers-only chat, with an optional minutes threshold', '[minutes|off]', access: Access::Moderator, aliases: ['followermode'], group: 'moderation', slash: new Slash([new SlashOption('minutes', 'Minimum follow age in minutes, or "off".')])),
-            new Action('twitch', 'raid', $this->raid(...), 'Raid another channel', '<channel>', access: Access::Administrator, group: 'cast', slash: new Slash([new SlashOption('channel', 'The Twitch channel to raid.', SlashOption::STRING, true)])),
-            new Action('twitch', 'unraid', $this->unraid(...), 'Cancel a pending raid', access: Access::Administrator, group: 'cast', slash: new Slash()),
-            new Action('twitch', 'commercial', $this->commercial(...), 'Start an ad break', '[seconds]', access: Access::Administrator, group: 'cast', slash: new Slash([new SlashOption('seconds', 'Ad break length in seconds. Defaults to 60.', SlashOption::INTEGER)])),
+            new Action('twitch', 'followersonly', $this->explained($this->followersonly(...)), 'Followers-only chat, with an optional minutes threshold', '[minutes|off]', access: Access::Moderator, aliases: ['followermode'], group: 'moderation', slash: new Slash([new SlashOption('minutes', 'Minimum follow age in minutes, or "off".')])),
+            new Action('twitch', 'raid', $this->explained($this->raid(...)), 'Raid another channel', '<channel>', access: Access::Administrator, group: 'cast', slash: new Slash([new SlashOption('channel', 'The Twitch channel to raid.', SlashOption::STRING, true)])),
+            new Action('twitch', 'unraid', $this->explained($this->unraid(...)), 'Cancel a pending raid', access: Access::Administrator, group: 'cast', slash: new Slash()),
+            new Action('twitch', 'commercial', $this->explained($this->commercial(...)), 'Start an ad break', '[seconds]', access: Access::Administrator, group: 'cast', slash: new Slash([new SlashOption('seconds', 'Ad break length in seconds. Defaults to 60.', SlashOption::INTEGER)])),
         ];
     }
 
@@ -309,14 +309,24 @@ final class ModerationActions implements ProvidesActions
         $login = \Bridge\Twitch\TwitchText::normalizeLogin($raw)
             ?? throw new ActionError(sprintf('`%s` is not a valid Twitch username.', $raw));
 
-        return $context->bot->resolveTwitchUser($login)->then(
+        return $this->twitch($context)->lookupUser($login)->then(
             static function (?array $user) use ($then, $broadcaster, $login): PromiseInterface {
                 if ($user === null) {
                     throw new ActionError(sprintf('Twitch has no user called `%s`.', $login));
                 }
 
+                // Some accounts have no display name; the reply still has to
+                // say who was acted on.
+                $user['display_name'] = $user['display_name'] !== '' ? $user['display_name'] : $user['login'];
+
                 return $then($broadcaster, $user);
             },
+            // Checked before the `then` above can run, so a moderation call is
+            // never made against a user who could not be looked up.
+            static fn (\Throwable $e): never => throw new ActionError(sprintf(
+                'could not look `%s` up on Twitch just now — try again in a moment.',
+                $login,
+            ), 0, $e),
         );
     }
 

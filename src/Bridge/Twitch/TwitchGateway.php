@@ -40,8 +40,28 @@ final class TwitchGateway
     /** @var list<array{channel: string, text: string, replyTo: string|null}> */
     private array $queue = [];
 
-    /** @var array<string, RateLimiter> Per-channel budget. */
-    private array $limiters = [];
+    /**
+     * Twitch's chat limit for an account that is not a moderator: 20 messages
+     * per 30 seconds, counted across *every* channel it speaks in, not per
+     * channel. Kept a little under, since a breach mutes the account.
+     */
+    public const CAPACITY = 18;
+
+    public const PER = 30.0;
+
+    /**
+     * How much may wait. A busy Discord channel produces more than Twitch will
+     * take — Discord allows a message a second, Twitch fewer than one every
+     * 1.6 — so without a bound the backlog grows for as long as the
+     * conversation lasts, and is still being played out long after it ended.
+     */
+    public const MAX_QUEUE = 100;
+
+    /** The account's one send budget. */
+    private readonly RateLimiter $budget;
+
+    /** How many messages were dropped since the backlog last cleared. */
+    private int $dropped = 0;
 
     private bool $draining = false;
 
@@ -53,7 +73,9 @@ final class TwitchGateway
         private readonly LoopInterface $loop,
         private readonly LoggerInterface $logger,
         private readonly string $nick,
+        ?RateLimiter $budget = null,
     ) {
+        $this->budget = $budget ?? new RateLimiter(self::CAPACITY, self::PER);
     }
 
     /** Registers the handler for inbound Twitch chat. */
@@ -114,9 +136,14 @@ final class TwitchGateway
 
         foreach ($part as $login) {
             $irc->part($login);
-            unset($this->limiters[$login]);
             $this->logger->info('[twitch] parted #' . $login);
         }
+
+        // Nothing still waiting for a channel the bot has just left.
+        $this->queue = array_values(array_filter(
+            $this->queue,
+            static fn (array $item): bool => ! in_array($item['channel'], $part, true),
+        ));
 
         $this->joined = array_values(array_diff($this->joined, $part));
         $this->applyJoins($join);
@@ -127,9 +154,9 @@ final class TwitchGateway
     /**
      * Queues a message for a Twitch channel.
      *
-     * Never sends inline: Twitch mutes the *account* for 30 minutes if the
-     * send limit is exceeded, so everything goes through the per-channel
-     * bucket even when the bucket is full and the queue is empty.
+     * Never sends around the budget: Twitch mutes the *account* for 30
+     * minutes if the send limit is exceeded, so everything goes through the
+     * one account-wide bucket, whichever channel it is for.
      *
      * Command replies come through here too, not just relayed chat. Both speak
      * as the same account against the same limit, and two senders that each
@@ -144,6 +171,19 @@ final class TwitchGateway
 
         if ($text === '' || ! in_array($channel, $this->joined, true)) {
             return;
+        }
+
+        if (count($this->queue) >= self::MAX_QUEUE) {
+            // The oldest goes: by the time it could be sent the conversation
+            // it belonged to has moved on.
+            array_shift($this->queue);
+
+            if ($this->dropped++ === 0) {
+                $this->logger->warning(sprintf(
+                    '[twitch] more is waiting than Twitch will take (%d messages); dropping the oldest until it clears',
+                    self::MAX_QUEUE,
+                ));
+            }
         }
 
         $this->queue[] = ['channel' => $channel, 'text' => $text, 'replyTo' => $replyTo === '' ? null : $replyTo];
@@ -187,9 +227,8 @@ final class TwitchGateway
     }
 
     /**
-     * Sends whatever the budget allows, then re-arms a timer for the rest.
-     * Head-of-line blocking is avoided by skipping over a channel that is out
-     * of tokens instead of stalling the whole queue behind it.
+     * Sends whatever the budget allows, in order, then re-arms a timer for the
+     * rest.
      */
     private function drain(): void
     {
@@ -198,32 +237,26 @@ final class TwitchGateway
             return;
         }
 
-        $deferred = [];
-        $soonest = null;
-
-        while ($this->queue !== []) {
+        while ($this->queue !== [] && $this->budget->tryConsume()) {
             $item = array_shift($this->queue);
-            $limiter = $this->limiters[$item['channel']] ??= new RateLimiter();
-
-            if ($limiter->tryConsume()) {
-                $irc->say($item['channel'], $item['text'], $item['replyTo']);
-
-                continue;
-            }
-
-            $deferred[] = $item;
-            $wait = $limiter->retryAfter();
-            $soonest = $soonest === null ? $wait : min($soonest, $wait);
+            $irc->say($item['channel'], $item['text'], $item['replyTo']);
         }
 
-        $this->queue = $deferred;
+        if ($this->queue === []) {
+            if ($this->dropped > 0) {
+                $this->logger->info(sprintf('[twitch] backlog cleared; %d message(s) were dropped', $this->dropped));
+                $this->dropped = 0;
+            }
 
-        if ($this->queue === [] || $this->draining) {
+            return;
+        }
+
+        if ($this->draining) {
             return;
         }
 
         $this->draining = true;
-        $this->loop->addTimer(max(0.1, $soonest ?? 0.1), function (): void {
+        $this->loop->addTimer(max(0.1, $this->budget->retryAfter()), function (): void {
             $this->draining = false;
             $this->drain();
         });
