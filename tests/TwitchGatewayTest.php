@@ -21,6 +21,7 @@ use Psr\Log\NullLogger;
 use Ratchet\Client\WebSocket;
 use React\EventLoop\StreamSelectLoop;
 use Twitch\Chat\Irc;
+use Twitch\Parts\ChatMessage;
 use Twitch\Twitch;
 
 /**
@@ -36,6 +37,11 @@ final class TwitchGatewayTest extends TestCase
     private array $lines = [];
 
     private float $now = 1000.0;
+
+    private Twitch $twitch;
+
+    /** @var list<string> What reached the chat handler. */
+    private array $heard = [];
 
     public function testOneFloodedChannelDoesNotStarveAnother(): void
     {
@@ -106,6 +112,60 @@ final class TwitchGatewayTest extends TestCase
         $this->assertSame(0, $gateway->queued());
     }
 
+    public function testTheHostsOwnChatIsRelayed(): void
+    {
+        // The bot speaks as the host's account, so a message from that account
+        // is usually the host typing — the one person whose chat most needs to
+        // reach Discord.
+        $gateway = $this->gateway(capacity: 4);
+        $gateway->listen();
+
+        $this->hear('BridgeBot', 'busy', 'back in five');
+
+        $this->assertSame(['back in five'], $this->heard);
+    }
+
+    public function testALineTheBridgeSentIsNotRelayedBack(): void
+    {
+        $gateway = $this->gateway(capacity: 4);
+        $gateway->listen();
+        $gateway->send('busy', 'alice: hi');
+
+        $this->hear('bridgebot', 'busy', 'alice: hi');
+        $this->assertSame([], $this->heard);
+
+        // Each sent line matches once: the host saying the same thing is
+        // still the host.
+        $this->hear('bridgebot', 'busy', 'alice: hi');
+        $this->assertSame(['alice: hi'], $this->heard);
+    }
+
+    public function testAnEchoIsMatchedOnlyInItsOwnChannelAndOnlyBriefly(): void
+    {
+        $gateway = $this->gateway(capacity: 4);
+        $gateway->listen();
+        $gateway->send('busy', 'alice: hi');
+        $gateway->send('busy', 'bob: hey');
+
+        $this->hear('bridgebot', 'quiet', 'alice: hi');
+
+        $this->now += TwitchGateway::ECHO_WINDOW + 1.0;
+        $this->hear('bridgebot', 'busy', 'bob: hey');
+
+        $this->assertSame(['alice: hi', 'bob: hey'], $this->heard);
+    }
+
+    public function testSomebodyElseIsNeverTakenForAnEcho(): void
+    {
+        $gateway = $this->gateway(capacity: 4);
+        $gateway->listen();
+        $gateway->send('busy', 'alice: hi');
+
+        $this->hear('alice', 'busy', 'alice: hi');
+
+        $this->assertSame(['alice: hi'], $this->heard);
+    }
+
     private function gateway(int $capacity): TwitchGateway
     {
         $socket = $this->createMock(WebSocket::class);
@@ -118,6 +178,7 @@ final class TwitchGatewayTest extends TestCase
 
         $twitch = (new \ReflectionClass(Twitch::class))->newInstanceWithoutConstructor();
         (new \ReflectionProperty(Twitch::class, 'irc'))->setValue($twitch, $irc);
+        $this->twitch = $twitch;
 
         $gateway = new TwitchGateway(
             $twitch,
@@ -125,7 +186,11 @@ final class TwitchGatewayTest extends TestCase
             new NullLogger(),
             'bridgebot',
             new RateLimiter($capacity, 30.0, fn (): float => $this->now),
+            fn (): float => $this->now,
         );
+        $gateway->onChat(function (ChatMessage $message): void {
+            $this->heard[] = (string) $message->content;
+        });
 
         $gateway->sync(new Links(['111111111111' => [
             '222222222222' => 'busy',
@@ -133,6 +198,18 @@ final class TwitchGatewayTest extends TestCase
         ]]));
 
         return $gateway;
+    }
+
+    /** A line arriving from Twitch, as the IRC client would emit it. */
+    private function hear(string $user, string $channel, string $text): void
+    {
+        $this->twitch->emit('chat', [new ChatMessage($this->twitch, [
+            'id' => 'msg-' . count($this->heard),
+            'channel' => $channel,
+            'user' => $user,
+            'content' => $text,
+            'tags' => [],
+        ]), $this->twitch]);
     }
 
     /** What the timer the gateway armed would do, without running a loop. */

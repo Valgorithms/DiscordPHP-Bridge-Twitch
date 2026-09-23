@@ -420,19 +420,16 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars
     /**
      * Turns a TwitchPHP chat message into the core's own shape.
      *
-     * The gateway has already dropped this account's own echo — IRC sends our
-     * `PRIVMSG`s back to us — so `own` is set from the nick as a second guard
-     * rather than as the only one.
+     * The gateway has already dropped the bridge's own lines, so everything
+     * that reaches here was typed by a person — the host included, since the
+     * bot speaks as the host's account. Their messages are relayed and their
+     * commands answered like anyone else's, at the rank Twitch gives them.
      */
     private function dispatch(ChatMessage $message): void
     {
-        $own = strcasecmp((string) $message->user, $this->config->nick) === 0;
-
         // Commands are answered here and dropped by the relay, which asks the
         // same dispatcher whether a line is one.
-        if (! $own) {
-            $this->adapter?->handle($message);
-        }
+        $this->adapter?->handle($message);
 
         $incoming = new Incoming(
             target: strtolower((string) $message->channel),
@@ -440,7 +437,6 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars
             authorId: (string) ($message->user_id ?? '') ?: null,
             text: (string) $message->content,
             id: (string) ($message->id ?? '') ?: null,
-            own: $own,
             handle: strtolower((string) $message->user),
         );
 

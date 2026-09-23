@@ -74,17 +74,39 @@ final class TwitchGateway
 
     private bool $draining = false;
 
+    /**
+     * How long a sent line is remembered for recognising its echo. Twitch
+     * delivers a message to the room in well under a second; this only has to
+     * outlast a slow network, not a conversation.
+     */
+    public const ECHO_WINDOW = 30.0;
+
+    /**
+     * What this connection said recently, per channel, oldest first.
+     *
+     * @var array<string, list<array{text: string, at: float}>>
+     */
+    private array $sent = [];
+
     /** @var (callable(ChatMessage): void)|null */
     private $onChat = null;
 
+    /** @var callable(): float */
+    private $clock;
+
+    /**
+     * @param (callable(): float)|null $clock Defaults to `microtime(true)`.
+     */
     public function __construct(
         private readonly Twitch $twitch,
         private readonly LoopInterface $loop,
         private readonly LoggerInterface $logger,
         private readonly string $nick,
         ?RateLimiter $budget = null,
+        ?callable $clock = null,
     ) {
         $this->budget = $budget ?? new RateLimiter(self::CAPACITY, self::PER);
+        $this->clock = $clock ?? static fn (): float => microtime(true);
     }
 
     /** Registers the handler for inbound Twitch chat. */
@@ -94,14 +116,21 @@ final class TwitchGateway
     }
 
     /**
-     * Starts listening. Messages the bridge itself sent are dropped here — the
-     * bot sees its own PRIVMSGs echoed back, and relaying those would bounce
-     * every Discord message straight back into Discord.
+     * Starts listening. Lines the bridge itself sent are dropped here, since
+     * relaying them would bounce every Discord message straight back into
+     * Discord.
+     *
+     * Only those lines, though — not everything from this account. The bot
+     * speaks as the host's own Twitch account, so a message from it is usually
+     * the host typing in chat, and that is exactly what the bridge is for.
+     * Twitch does not send a connection its own messages back; a line
+     * from this account that matches one just sent is dropped all the same,
+     * in case something ever does.
      */
     public function listen(): void
     {
         $this->twitch->on('chat', function (ChatMessage $message): void {
-            if (strcasecmp($message->user, $this->nick) === 0) {
+            if ($this->isEcho($message)) {
                 return;
             }
 
@@ -150,7 +179,7 @@ final class TwitchGateway
 
         // Nothing still waiting for a channel the bot has just left.
         foreach ($part as $login) {
-            unset($this->queues[$login]);
+            unset($this->queues[$login], $this->sent[$login]);
         }
 
         $this->joined = array_values(array_diff($this->joined, $part));
@@ -231,6 +260,46 @@ final class TwitchGateway
         return array_sum(array_map('count', $this->queues));
     }
 
+    /**
+     * Whether a message is one of this connection's own lines coming back.
+     *
+     * Each sent line can be matched once, so the host saying the same thing a
+     * moment later is still relayed.
+     */
+    private function isEcho(ChatMessage $message): bool
+    {
+        if (strcasecmp((string) $message->user, $this->nick) !== 0) {
+            return false;
+        }
+
+        $channel = strtolower(ltrim((string) $message->channel, '#'));
+        $text = trim((string) $message->content);
+        $cutoff = ($this->clock)() - self::ECHO_WINDOW;
+
+        $recent = array_values(array_filter(
+            $this->sent[$channel] ?? [],
+            static fn (array $line): bool => $line['at'] >= $cutoff,
+        ));
+
+        $echo = false;
+        foreach ($recent as $i => $line) {
+            if (trim($line['text']) === $text) {
+                unset($recent[$i]);
+                $echo = true;
+
+                break;
+            }
+        }
+
+        if ($recent === []) {
+            unset($this->sent[$channel]);
+        } else {
+            $this->sent[$channel] = array_values($recent);
+        }
+
+        return $echo;
+    }
+
     /** @param list<string> $logins */
     private function applyJoins(array $logins): void
     {
@@ -270,6 +339,7 @@ final class TwitchGateway
             }
 
             $irc->say($channel, $item['text'], $item['replyTo']);
+            $this->sent[$channel][] = ['text' => $item['text'], 'at' => ($this->clock)()];
         }
 
         if ($this->queues === []) {
