@@ -118,6 +118,31 @@ final class TwitchAdapterTest extends TestCase
         $this->assertFalse($this->adapter->handle($this->message(['content' => '!uptime'])));
     }
 
+    public function testACommandFromASharedChatPartnerIsNotRun(): void
+    {
+        // Typed in another channel's chat, shown here by Shared Chat. Its
+        // sender's rank was earned over there.
+        $shared = $this->message([
+            'content' => '!twitch',
+            'is_broadcaster' => true,
+            'tags' => ['room-id' => '123456', 'source-room-id' => '999999'],
+        ]);
+
+        $this->assertTrue(TwitchAdapter::fromSharedChat($shared));
+        $this->assertFalse($this->adapter->handle($shared));
+    }
+
+    public function testACommandTypedHereDuringSharedChatStillRuns(): void
+    {
+        $own = $this->message([
+            'content' => '!twitch',
+            'tags' => ['room-id' => '123456', 'source-room-id' => '123456'],
+        ]);
+
+        $this->assertFalse(TwitchAdapter::fromSharedChat($own));
+        $this->assertTrue($this->adapter->handle($own));
+    }
+
     public function testTheSurfaceUsesTheConfiguredPrefix(): void
     {
         $this->assertSame('!', $this->connector->surface()->prefix);

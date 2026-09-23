@@ -98,6 +98,29 @@ final class TwitchTextTest extends TestCase
         $this->assertStringStartsWith('ada: ', $composed);
     }
 
+    #[DataProvider('botCommandNames')]
+    public function testANicknameCannotMakeTheLineAnotherBotsCommand(string $nickname, string $expected): void
+    {
+        // The bridge account is usually a moderator, and Nightbot and friends
+        // run a line starting with `!` from a moderator with a moderator's
+        // authority. The nickname is chosen by whoever is speaking.
+        $composed = (string) TwitchText::compose($this->message($nickname, 'hi'));
+
+        $this->assertStringStartsWith($expected . ': ', $composed);
+        $this->assertMatchesRegularExpression('/^[\p{L}\p{N}]/u', $composed);
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public static function botCommandNames(): iterable
+    {
+        yield 'bang command' => ['!addcom !x', 'addcom !x'];
+        yield 'slash' => ['/mod someone', 'mod someone'];
+        yield 'dot' => ['.ban someone', 'ban someone'];
+        yield 'other prefixes' => ['?$~ cmd', 'cmd'];
+        yield 'nothing left' => ['!!!', 'someone'];
+        yield 'an ordinary name' => ['Ada', 'Ada'];
+    }
+
     public function testAnEmptyMessageRelaysNothing(): void
     {
         // An embed-only message has nothing a chat can repeat.

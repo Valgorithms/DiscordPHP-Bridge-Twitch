@@ -59,6 +59,10 @@ final class TwitchAdapter
      */
     public function handle(ChatMessage $message): bool
     {
+        if (self::fromSharedChat($message)) {
+            return false;
+        }
+
         return $this->dispatcher->dispatch(
             (string) $message->content,
             $this->invocation($message),
@@ -68,6 +72,24 @@ final class TwitchAdapter
                 ['reply_to' => (string) $message->id],
             ),
         );
+    }
+
+    /**
+     * Whether a message was typed in *another* channel's chat and is being
+     * shown here through Twitch's Shared Chat.
+     *
+     * During a shared session every participating channel receives every
+     * participant's messages, tagged with the room they came from. A command
+     * typed over there is not addressed to this channel, and its sender's rank
+     * was earned over there — so it is not run here at all. (Like any command
+     * line, it is not relayed either.)
+     */
+    public static function fromSharedChat(ChatMessage $message): bool
+    {
+        $source = (string) ($message->tags['source-room-id'] ?? '');
+        $room = (string) ($message->tags['room-id'] ?? '');
+
+        return $source !== '' && $source !== $room;
     }
 
     /** Who typed a message and where, as the dispatcher needs it. */

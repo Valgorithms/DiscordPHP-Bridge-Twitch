@@ -47,6 +47,24 @@ final class TwitchText
      * stays readable instead of running words together. Every other C0/C1
      * control character is dropped outright.
      */
+    /**
+     * A name that is safe to *start* a chat line with.
+     *
+     * The name comes first on every relayed line, and it is chosen by whoever
+     * is speaking — a Discord nickname, a Telegram name. The other bots in a
+     * Twitch chat (Nightbot, StreamElements, Fossabot) read a line starting
+     * with `!` as a command, and the bridge's account is usually a moderator
+     * there, so a nickname like `!addcom !x` would be run with a moderator's
+     * authority by somebody who is not one. Leading symbols are dropped; what
+     * is left starts with a letter or a digit.
+     */
+    public static function speaker(string $name): string
+    {
+        $name = preg_replace('/^[^\p{L}\p{N}]+/u', '', self::sanitizeIrc($name)) ?? '';
+
+        return $name === '' ? 'someone' : $name;
+    }
+
     public static function sanitizeIrc(string $text): string
     {
         $text = str_replace(["\r\n", "\r", "\n", "\v", "\f"], ' ', $text);
@@ -79,7 +97,7 @@ final class TwitchText
             $message->roleNames,
         ));
 
-        $prefix = self::sanitizeIrc($message->author) . ': ';
+        $prefix = self::speaker($message->author) . ': ';
         $budget = max(1, $limit - MessageText::length($prefix));
         $suffix = MessageText::attachmentLinks($message->mediaUrls(), $budget, self::sanitizeIrc(...));
 

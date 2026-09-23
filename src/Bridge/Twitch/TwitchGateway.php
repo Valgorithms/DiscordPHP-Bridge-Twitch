@@ -37,9 +37,6 @@ final class TwitchGateway
     /** @var list<string> Channels currently joined, lower-case, no leading '#'. */
     private array $joined = [];
 
-    /** @var list<array{channel: string, text: string, replyTo: string|null}> */
-    private array $queue = [];
-
     /**
      * Twitch's chat limit for an account that is not a moderator: 20 messages
      * per 30 seconds, counted across *every* channel it speaks in, not per
@@ -56,6 +53,18 @@ final class TwitchGateway
      * conversation lasts, and is still being played out long after it ended.
      */
     public const MAX_QUEUE = 100;
+
+    /**
+     * What is waiting, one queue per channel, in the order channels take turns.
+     *
+     * One budget is shared by every channel, so a single queue would let one
+     * flooded bridge — or one viewer spamming commands — use all of it and
+     * push every other channel's messages out of the backlog. Taking turns
+     * gives each channel an equal share whenever there is contention.
+     *
+     * @var array<string, list<array{text: string, replyTo: string|null}>>
+     */
+    private array $queues = [];
 
     /** The account's one send budget. */
     private readonly RateLimiter $budget;
@@ -140,10 +149,9 @@ final class TwitchGateway
         }
 
         // Nothing still waiting for a channel the bot has just left.
-        $this->queue = array_values(array_filter(
-            $this->queue,
-            static fn (array $item): bool => ! in_array($item['channel'], $part, true),
-        ));
+        foreach ($part as $login) {
+            unset($this->queues[$login]);
+        }
 
         $this->joined = array_values(array_diff($this->joined, $part));
         $this->applyJoins($join);
@@ -173,10 +181,23 @@ final class TwitchGateway
             return;
         }
 
-        if (count($this->queue) >= self::MAX_QUEUE) {
-            // The oldest goes: by the time it could be sent the conversation
-            // it belonged to has moved on.
-            array_shift($this->queue);
+        if ($this->queued() >= self::MAX_QUEUE) {
+            // The oldest message of whichever channel is waiting on the most
+            // goes: by the time it could be sent the conversation has moved
+            // on, and the channel causing the backlog is the one that pays.
+            $longest = array_key_first($this->queues);
+
+            foreach ($this->queues as $login => $waiting) {
+                if (count($waiting) > count($this->queues[$longest])) {
+                    $longest = $login;
+                }
+            }
+
+            array_shift($this->queues[$longest]);
+
+            if ($this->queues[$longest] === []) {
+                unset($this->queues[$longest]);
+            }
 
             if ($this->dropped++ === 0) {
                 $this->logger->warning(sprintf(
@@ -186,7 +207,7 @@ final class TwitchGateway
             }
         }
 
-        $this->queue[] = ['channel' => $channel, 'text' => $text, 'replyTo' => $replyTo === '' ? null : $replyTo];
+        $this->queues[$channel][] = ['text' => $text, 'replyTo' => $replyTo === '' ? null : $replyTo];
         $this->drain();
     }
 
@@ -207,7 +228,7 @@ final class TwitchGateway
     /** How many messages are waiting, for logging and health checks. */
     public function queued(): int
     {
-        return count($this->queue);
+        return array_sum(array_map('count', $this->queues));
     }
 
     /** @param list<string> $logins */
@@ -227,8 +248,8 @@ final class TwitchGateway
     }
 
     /**
-     * Sends whatever the budget allows, in order, then re-arms a timer for the
-     * rest.
+     * Sends whatever the budget allows, one message per channel in turn, then
+     * re-arms a timer for the rest. Each channel's own messages stay in order.
      */
     private function drain(): void
     {
@@ -237,12 +258,21 @@ final class TwitchGateway
             return;
         }
 
-        while ($this->queue !== [] && $this->budget->tryConsume()) {
-            $item = array_shift($this->queue);
-            $irc->say($item['channel'], $item['text'], $item['replyTo']);
+        while ($this->queues !== [] && $this->budget->tryConsume()) {
+            $channel = (string) array_key_first($this->queues);
+            $item = array_shift($this->queues[$channel]);
+            $rest = $this->queues[$channel];
+
+            // To the back of the line, if it has more to say.
+            unset($this->queues[$channel]);
+            if ($rest !== []) {
+                $this->queues[$channel] = $rest;
+            }
+
+            $irc->say($channel, $item['text'], $item['replyTo']);
         }
 
-        if ($this->queue === []) {
+        if ($this->queues === []) {
             if ($this->dropped > 0) {
                 $this->logger->info(sprintf('[twitch] backlog cleared; %d message(s) were dropped', $this->dropped));
                 $this->dropped = 0;
