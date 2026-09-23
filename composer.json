@@ -23,9 +23,9 @@
     ],
     "require": {
         "php": "^8.4",
-        "discord-php/bridge": "@dev",
         "react/event-loop": "^1.5",
         "react/promise": "^3.2",
+        "vzgcoders/discordphp-bridge": "@dev",
         "vzgcoders/twitchphp": "@dev"
     },
     "require-dev": {
