@@ -28,11 +28,16 @@ once for every connector — so what is in this package is only what is actually
 about Twitch.
 
 `.env` needs a Twitch application plus a user token for the account the bridge
-speaks as (`chat:read` and `chat:edit`). The connector refreshes that token and
-writes the new pair back to `.env` itself: Twitch invalidates the old refresh
-token on every rotation, so anything that does not persist it locks itself out
-on the next restart. For the same reason, don't share one token pair between
-two projects — whichever refreshes first breaks the other's copy.
+speaks as (`chat:read` and `chat:edit`). That account is the host's own:
+`TWITCH_NICK` is its login, not the application's name, which is not an account
+and cannot chat. What the host types in Twitch chat is relayed like anyone
+else's; only lines the bridge itself just sent are held back.
+
+The connector refreshes that token and writes the new pair back to `.env`
+itself: Twitch invalidates the old refresh token on every rotation, so anything
+that does not persist it locks itself out on the next restart. For the same
+reason, don't share one token pair between two projects — whichever refreshes
+first breaks the other's copy.
 
 ### Running without a client secret
 
