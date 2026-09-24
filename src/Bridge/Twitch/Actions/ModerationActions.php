@@ -21,6 +21,9 @@ use Bridge\Command\Arguments;
 use Bridge\Command\Context;
 use Bridge\Command\Slash;
 use Bridge\Command\SlashOption;
+use Bridge\Support\MessageText;
+use Bridge\Twitch\TwitchConnector;
+use Bridge\Twitch\TwitchText;
 use React\Promise\PromiseInterface;
 
 /**
@@ -173,8 +176,29 @@ final class ModerationActions implements ProvidesActions
         }
 
         return $this->twitch($context)->getTwitch()->chat
-            ->announce($context->requireTarget(), $this->moderatorId($context), $text)
+            ->announce($context->requireTarget(), $this->moderatorId($context), self::attributed($context, $text))
             ->then(static fn (): string => 'announced.');
+    }
+
+    /**
+     * An announcement's text, saying who sent it and from where when that was
+     * not Twitch.
+     *
+     * Twitch shows every announcement as the host's. Typed in Twitch chat, the
+     * command that made it is right above it; typed in Discord or Telegram,
+     * nothing would say it came from someone else, so it says so the way
+     * relayed chat does. The name is defused the same way too (F2).
+     */
+    private static function attributed(Context $context, string $text): string
+    {
+        if ($context->surface->name === TwitchConnector::NAME) {
+            return $text;
+        }
+
+        return MessageText::truncate(
+            sprintf('%s (%s): %s', TwitchText::speaker($context->invokerName), $context->surface->name, $text),
+            TwitchText::LIMIT,
+        );
     }
 
     /** @return PromiseInterface<string> */
