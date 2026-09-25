@@ -148,8 +148,9 @@ token is fine.
 
 ## Coming from DiscordPHP-TwitchBot
 
-This repository *is* that project, with everything that was not about Twitch
-moved into the core. The commands were renamed to make room for other networks:
+This repository *is* that project, renamed to match its package, with everything
+that was not about Twitch moved into the core. The commands were renamed to make
+room for other networks:
 
 | Before | Now |
 | --- | --- |
