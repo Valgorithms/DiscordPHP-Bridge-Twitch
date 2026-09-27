@@ -40,8 +40,28 @@ final class TwitchGatewayTest extends TestCase
 
     private Twitch $twitch;
 
+    private Irc $irc;
+
     /** @var list<string> What reached the chat handler. */
     private array $heard = [];
+
+    public function testWhatIsSentWhileChatIsDownWaitsForItToComeBack(): void
+    {
+        $gateway = $this->gateway(capacity: 5);
+        $gateway->listen();
+        $this->setConnected(false);
+
+        $gateway->send('busy', 'said while chat was down');
+
+        $this->assertSame([], $this->privmsgs(), 'nothing is written to a dead connection');
+        $this->assertSame(1, $gateway->queued());
+
+        $this->setConnected(true);
+        $this->twitch->emit('chat.connected', [$this->twitch]);
+
+        $this->assertSame(['PRIVMSG #busy :said while chat was down'], $this->privmsgs());
+        $this->assertSame(0, $gateway->queued());
+    }
 
     public function testOneFloodedChannelDoesNotStarveAnother(): void
     {
@@ -175,6 +195,8 @@ final class TwitchGatewayTest extends TestCase
 
         $irc = (new \ReflectionClass(Irc::class))->newInstanceWithoutConstructor();
         (new \ReflectionProperty(Irc::class, 'conn'))->setValue($irc, $socket);
+        $this->irc = $irc;
+        $this->setConnected(true);
 
         $twitch = (new \ReflectionClass(Twitch::class))->newInstanceWithoutConstructor();
         (new \ReflectionProperty(Twitch::class, 'irc'))->setValue($twitch, $irc);
@@ -198,6 +220,12 @@ final class TwitchGatewayTest extends TestCase
         ]]));
 
         return $gateway;
+    }
+
+    /** Whether the chat client counts as logged in; the gateway sends nothing while it is not. */
+    private function setConnected(bool $connected): void
+    {
+        (new \ReflectionProperty(Irc::class, 'connected'))->setValue($this->irc, $connected);
     }
 
     /** A line arriving from Twitch, as the IRC client would emit it. */

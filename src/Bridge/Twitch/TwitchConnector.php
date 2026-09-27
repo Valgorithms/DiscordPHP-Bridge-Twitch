@@ -16,12 +16,14 @@ namespace Bridge\Twitch;
 use Bridge\Bot;
 use Bridge\Capability\Avatars;
 use Bridge\Capability\ProvidesActions;
+use Bridge\Capability\Reconnects;
 use Bridge\Command\Surface;
 use Bridge\Connector;
 use Bridge\Links;
 use Bridge\Message\Incoming;
 use Bridge\Message\Outgoing;
 use Bridge\Room;
+use Bridge\Support\ConnectionAlerts;
 use Bridge\Twitch\Actions\ApiActions;
 use Bridge\Twitch\Actions\ChannelActions;
 use Bridge\Twitch\Actions\ModerationActions;
@@ -34,6 +36,7 @@ use Twitch\Http\OAuth;
 use Twitch\Parts\ChatMessage;
 use Twitch\Twitch;
 
+use function React\Promise\reject;
 use function React\Promise\resolve;
 
 /**
@@ -47,12 +50,23 @@ use function React\Promise\resolve;
  * `Twitch::run()` would call `Loop::run()` itself, so the client is started
  * through `bootstrap()` and `Discord::run()` is left to drive the loop.
  *
+ * Chat keeps its own connection: TwitchPHP's chat client notices a drop and
+ * retries. When that stops working the owner gets a DM with a button to try
+ * again, and the DM changes once chat is back.
+ *
  * @author Valithor Obsidion <valithor@valgorithms.com>
  */
-final class TwitchConnector implements Connector, ProvidesActions, Avatars
+final class TwitchConnector implements Connector, ProvidesActions, Avatars, Reconnects
 {
     /** The name this connector is addressed by, in the store and in chat. */
     public const NAME = 'twitch';
+
+    /**
+     * Seconds between chat's attempts to reconnect once its quicker retries
+     * have run out. The owner's DM says so, so it is set here, not left to
+     * TwitchPHP's default.
+     */
+    public const KEEP_TRYING_EVERY = 300.0;
 
     /**
      * Exactly the scopes the built-in commands need — no more.
@@ -148,6 +162,9 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars
     /** @var array<string, PromiseInterface<array{id: string, login: string, display_name: string, description: string, avatar: string}|null>> Lookups in flight, so a burst from one chatter is one request. */
     private array $pending = [];
 
+    /** When chat went down, as a Unix time; null while it is up. */
+    private ?int $downSince = null;
+
     public function __construct(private readonly TwitchConfig $config)
     {
     }
@@ -212,6 +229,7 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars
             // Last resort when refreshing cannot recover the grant — which is
             // always, when no client secret is configured.
             'reauthorize' => $this->reauthorizer(),
+            'irc' => ['keep_trying_every' => self::KEEP_TRYING_EVERY],
         ]);
 
         $this->dispatcher = new RepositoryDispatcher($this->twitch);
@@ -239,6 +257,7 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars
 
             $this->gateway->listen();
             $this->gateway->onChat(fn (ChatMessage $message) => $this->dispatch($message));
+            $this->watchConnection($this->bot->connectionAlerts());
 
             $this->bot->getLogger()->info(sprintf(
                 '[twitch] ready as %s; %d bridge(s) configured, commands start with %s',
@@ -257,6 +276,43 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars
     public function stop(): void
     {
         $this->twitch->close();
+    }
+
+    /** Tries chat's connection again now; see {@see Reconnects}. */
+    public function reconnect(): PromiseInterface
+    {
+        $irc = $this->twitch->getIrc();
+
+        return $irc === null
+            ? reject(new \RuntimeException('Twitch chat is not set up; it never started.'))
+            : $irc->reconnect();
+    }
+
+    /**
+     * Tells the owner when chat stays down, and when it is back.
+     *
+     * TwitchPHP's chat client does the retrying. This speaks up only when that
+     * has run out, and edits what it said once chat returns, however it got
+     * there.
+     */
+    private function watchConnection(ConnectionAlerts $alerts): void
+    {
+        $this->twitch->on('chat.disconnected', function (): void {
+            $this->downSince ??= time();
+        });
+
+        $this->twitch->on('chat.reconnect_failed', function (int $attempts) use ($alerts): void {
+            $alerts->failed($this, sprintf(
+                'Chat did not come back after %d attempts. It keeps trying every %d minutes.',
+                $attempts,
+                (int) round(self::KEEP_TRYING_EVERY / 60),
+            ), $this->downSince);
+        });
+
+        $this->twitch->on('chat.connected', function () use ($alerts): void {
+            $this->downSince = null;
+            $alerts->restored($this);
+        });
     }
 
     // ── Rooms ──────────────────────────────────────────────────────────

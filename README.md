@@ -55,6 +55,24 @@ never shows an existing secret twice — generating a new one invalidates the ol
 which breaks anything else sharing that client id, so a second Twitch
 application is often the cleaner move.
 
+### When chat drops
+
+Chat reconnects by itself (TwitchPHP's chat client does the work):
+
+- **Detection:** a connection that closes is noticed at once. So is one that
+  goes quiet and then does not answer a `PING`, which is how a dropped network
+  shows up. Twitch's own `RECONNECT` request is honoured.
+- **Retrying:** attempts back off from a second to a minute, over roughly five
+  minutes. After that it keeps trying every five minutes.
+- **Messages:** anything relayed from Discord meanwhile waits in the send queue
+  and goes out once chat is back, up to the queue's limit.
+- **The owner's DM:** when the quick retries run out, the owner gets a DM
+  saying chat is down and since when, with a **Reconnect now** button. The
+  same DM changes to say chat is back, however it got there.
+
+The DM needs `DISCORD_OWNER_ID`, the same setting that sends the device-code
+prompt above.
+
 ## Commands
 
 Everything below works four ways — as a Discord slash command, as a Discord

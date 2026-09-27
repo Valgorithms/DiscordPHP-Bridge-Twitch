@@ -146,10 +146,13 @@ final class TwitchGateway
             $rejoin = $this->joined;
             $this->joined = [];
             $this->applyJoins($rejoin);
+
+            // Whatever was relayed while chat was down has been waiting for this.
+            $this->drain();
         });
 
         $this->twitch->on('chat.disconnected', function (int $code, string $reason): void {
-            $this->logger->warning(sprintf('[twitch] chat disconnected (%d) %s', $code, $reason));
+            $this->logger->warning(sprintf('[twitch] chat disconnected (%d) %s; messages wait until it is back', $code, $reason));
         });
     }
 
@@ -319,11 +322,15 @@ final class TwitchGateway
     /**
      * Sends whatever the budget allows, one message per channel in turn, then
      * re-arms a timer for the rest. Each channel's own messages stay in order.
+     *
+     * Nothing goes while chat is down: a line written to a dead connection is
+     * lost without a word. The queue keeps it, within MAX_QUEUE, and the
+     * reconnect drains it.
      */
     private function drain(): void
     {
         $irc = $this->twitch->getIrc();
-        if ($irc === null) {
+        if ($irc === null || ! $irc->isConnected()) {
             return;
         }
 
