@@ -24,6 +24,7 @@ use Bridge\Message\Incoming;
 use Bridge\Message\Outgoing;
 use Bridge\Room;
 use Bridge\Support\ConnectionAlerts;
+use Bridge\Support\JsonFile;
 use Bridge\Twitch\Actions\ApiActions;
 use Bridge\Twitch\Actions\ChannelActions;
 use Bridge\Twitch\Actions\ModerationActions;
@@ -165,6 +166,8 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars, Reco
     /** When chat went down, as a Unix time; null while it is up. */
     private ?int $downSince = null;
 
+    private ?LiveAnnouncer $announcer = null;
+
     public function __construct(private readonly TwitchConfig $config)
     {
     }
@@ -259,6 +262,9 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars, Reco
             $this->gateway->onChat(fn (ChatMessage $message) => $this->dispatch($message));
             $this->watchConnection($this->bot->connectionAlerts());
 
+            $this->announcer = $this->liveAnnouncer();
+            $this->announcer->start();
+
             $this->bot->getLogger()->info(sprintf(
                 '[twitch] ready as %s; %d bridge(s) configured, commands start with %s',
                 (string) $this->twitch->getLogin(),
@@ -275,6 +281,7 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars, Reco
 
     public function stop(): void
     {
+        $this->announcer?->stop();
         $this->twitch->close();
     }
 
@@ -286,6 +293,80 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars, Reco
         return $irc === null
             ? reject(new \RuntimeException('Twitch chat is not set up; it never started.'))
             : $irc->reconnect();
+    }
+
+    /**
+     * Go-live and stream-end announcements for every bridged channel; see
+     * {@see LiveAnnouncer}. What it has announced is kept beside the store,
+     * so a restart mid-stream does not announce the stream again.
+     */
+    private function liveAnnouncer(): LiveAnnouncer
+    {
+        $store = $this->bot->getStore();
+
+        return new LiveAnnouncer(
+            $this->bot->getLoop(),
+            $this->bot->getLogger(),
+            new JsonFile(dirname($store->path()) . '/twitch-live.json', $store->filesystem()),
+            fn (): array => $this->bot->getStore()->links(self::NAME)->targets(),
+            fn (array $logins): PromiseInterface => $this->twitch->streams->live(['user_login' => $logins, 'first' => 100])->then(
+                static function ($streams): array {
+                    $live = [];
+                    foreach ($streams as $stream) {
+                        $live[] = [
+                            'id' => (string) $stream->id,
+                            'login' => (string) $stream->user_login,
+                            'name' => (string) $stream->user_name,
+                            'title' => (string) $stream->title,
+                            'game' => (string) $stream->game_name,
+                            'started_at' => $stream->started_at?->getTimestamp() ?? time(),
+                        ];
+                    }
+
+                    return $live;
+                },
+            ),
+            fn (string $login, string $text, array $stream) => $this->announce($login, $text, $stream),
+        );
+    }
+
+    /**
+     * Posts to every Discord channel bridged to a login, as the streamer: their
+     * name and avatar, like a relayed line.
+     *
+     * The relay does not send a webhook's messages back out, so the
+     * announcement stays in Discord and does not echo into the Twitch chat.
+     *
+     * @param array<string, mixed> $stream
+     */
+    private function announce(string $login, string $text, array $stream): void
+    {
+        $channels = $this->bot->getStore()->links(self::NAME)->discordFor($login);
+
+        $this->lookupUser($login)->then(null, static fn () => null)->then(
+            function (?array $user) use ($channels, $text, $stream): void {
+                foreach ($channels as $channelId) {
+                    $channel = $this->bot->getChannel($channelId);
+
+                    if ($channel === null) {
+                        continue;
+                    }
+
+                    $this->bot->delivery()->deliver(
+                        $channel,
+                        $user['display_name'] ?? (string) $stream['name'],
+                        $text,
+                        $user['avatar'] ?? null,
+                        ' (' . self::NAME . ')',
+                    )->then(null, fn (\Throwable $e) => $this->bot->getLogger()->warning(sprintf(
+                        '[twitch] could not announce %s in %s: %s',
+                        (string) $stream['login'],
+                        $channelId,
+                        $e->getMessage(),
+                    )));
+                }
+            },
+        );
     }
 
     /**

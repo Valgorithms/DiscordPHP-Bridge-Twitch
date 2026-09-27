@@ -73,6 +73,32 @@ Chat reconnects by itself (TwitchPHP's chat client does the work):
 The DM needs `DISCORD_OWNER_ID`, the same setting that sends the device-code
 prompt above.
 
+### Live announcements
+
+When a bridged Twitch channel goes live, every Discord channel bridged to it
+gets a post under the streamer's name and avatar, like a relayed line. It gives
+the stream's title and game, and a link Discord previews:
+
+```
+🔴 Live now: Building a bridge
+Streaming Software and Game Development
+https://www.twitch.tv/streamer
+```
+
+When the stream ends, the same channels get `⚫ Stream ended after 2h 14m.`
+
+- **Timing:** it checks every minute, with one Helix call per hundred bridged
+  channels, so an announcement arrives within about a minute.
+- **Blips:** an end counts only after two checks in a row without the stream.
+  An encoder that drops for a moment is not an ended stream, and one back
+  within that window is not announced again.
+- **Restarts:** what was announced is kept in `twitch-live.json`, beside
+  `bridges.json`, so a restart mid-stream does not announce it twice. A stream
+  that ended while the bot was down for more than a few minutes is not
+  announced late.
+- **No echo:** the announcements are webhook posts, which the relay never sends
+  back out, so they do not appear in the Twitch chat.
+
 ## Commands
 
 Everything below works four ways — as a Discord slash command, as a Discord
