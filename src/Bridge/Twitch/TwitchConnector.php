@@ -25,6 +25,7 @@ use Bridge\Message\Outgoing;
 use Bridge\Room;
 use Bridge\Support\ConnectionAlerts;
 use Bridge\Support\JsonFile;
+use Bridge\Support\LiveAnnouncer;
 use Bridge\Twitch\Actions\ApiActions;
 use Bridge\Twitch\Actions\ChannelActions;
 use Bridge\Twitch\Actions\ModerationActions;
@@ -299,6 +300,11 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars, Reco
      * Go-live and stream-end announcements for every bridged channel; see
      * {@see LiveAnnouncer}. What it has announced is kept beside the store,
      * so a restart mid-stream does not announce the stream again.
+     *
+     * It asks Helix every minute, one call per hundred bridged channels.
+     * EventSub would be quicker, but it limits subscriptions for channels that
+     * have not authorized the app, and a bridge follows other people's channels
+     * too.
      */
     private function liveAnnouncer(): LiveAnnouncer
     {
@@ -327,6 +333,8 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars, Reco
                 },
             ),
             fn (string $login, string $text, array $stream) => $this->announce($login, $text, $stream),
+            static fn (array $stream): string => 'https://www.twitch.tv/' . rawurlencode((string) $stream['login']),
+            self::NAME,
         );
     }
 
