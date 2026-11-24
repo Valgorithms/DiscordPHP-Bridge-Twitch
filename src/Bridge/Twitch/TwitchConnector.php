@@ -234,6 +234,7 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars, Reco
             // always, when no client secret is configured.
             'reauthorize' => $this->reauthorizer(),
             'irc' => ['keep_trying_every' => self::KEEP_TRYING_EVERY],
+            'socket_options' => $bot->windowsDnsSocketOptions(),
         ]);
 
         $this->dispatcher = new RepositoryDispatcher($this->twitch);
@@ -648,6 +649,7 @@ final class TwitchConnector implements Connector, ProvidesActions, Avatars, Reco
             $this->config->clientId,
             $this->config->clientSecret,
             $this->bot->getLoop(),
+            $this->bot->windowsDnsSocketOptions(),
         );
 
         return new DeviceCodeReauthorizer(
